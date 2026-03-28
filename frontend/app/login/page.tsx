@@ -179,10 +179,27 @@ function DonorForm({ onBack }: { onBack: () => void }) {
   const handleLogin = async () => {
     if (!name.trim()) return;
     setLoading(true);
+    // DEMO BYPASS: Set session and redirect immediately
     localStorage.setItem('sustainify_name', name);
     localStorage.setItem('sustainify_role', 'donor');
-    await signInWithGoogle();
+    localStorage.setItem('sustainify_session', JSON.stringify({ name, role: 'donor' }));
+    
+    // Support real login if configured
+    try {
+      await signInWithGoogle('donor');
+    } catch (err) {
+      console.warn("OAuth failed, using demo bypass");
+      window.location.href = '/feed';
+    }
   };
+
+  const handleDemoLogin = () => {
+    localStorage.setItem('sustainify_name', 'Alex Changemaker');
+    localStorage.setItem('sustainify_role', 'donor');
+    localStorage.setItem('sustainify_session', JSON.stringify({ name: 'Alex Changemaker', role: 'donor' }));
+    window.location.href = '/feed';
+  };
+
 
   return (
     <motion.div initial={{ opacity: 0, scale: 0.95, y: 30 }} animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -210,6 +227,17 @@ function DonorForm({ onBack }: { onBack: () => void }) {
             {loading ? <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity }}>🌱</motion.span> : <GoogleSvg />}
             {loading ? 'Connecting...' : 'Continue with Google'}
           </motion.button>
+          
+          <div className="relative py-4">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/10" /></div>
+            <div className="relative flex justify-center text-[8px] uppercase tracking-[0.3em]"><span className="bg-[#0b1219] px-4 text-gray-500">Or Demo Protocol</span></div>
+          </div>
+
+          <motion.button onClick={handleDemoLogin} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+            className="w-full py-4 rounded-2xl font-bold text-xs uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 transition-all shadow-2xl">
+            Ignite Simulated Session (No Login Required)
+          </motion.button>
+
           <p className="text-[9px] text-gray-600 uppercase tracking-widest font-bold text-center">🔒 Encrypted · 🛡️ RLS Protected</p>
         </div>
       </div>
@@ -248,13 +276,28 @@ function NgoForm({ onBack }: { onBack: () => void }) {
     setLoading(true);
     localStorage.setItem('sustainify_role', 'ngo');
     localStorage.setItem('sustainify_name', personName);
+    
+    // DEMO BYPASS
     if (!isNew) {
-      localStorage.setItem('sustainify_darpan', darpanId.trim().toUpperCase());
-      localStorage.setItem('sustainify_ngo_id', verifiedNgo?.id || '');
-      localStorage.setItem('sustainify_ngo_name', ngoName);
+      const trimmedId = darpanId.trim().toUpperCase();
+      localStorage.setItem('sustainify_darpan', trimmedId);
+      // Use the verified NGO ID if found, otherwise use a default demo ID
+      const targetNgoId = verifiedNgo?.id || 'shiksha-foundation';
+      localStorage.setItem('sustainify_ngo_id', targetNgoId);
+      localStorage.setItem('sustainify_ngo_name', ngoName || 'Demo NGO');
+      localStorage.setItem('sustainify_ngo_session', JSON.stringify({ ngoId: targetNgoId, darpanId: trimmedId }));
+      
+      window.location.href = `/ngo-admin/${targetNgoId}`;
+      return;
     }
-    await signInWithGoogle();
+
+    try {
+      await signInWithGoogle('ngo', isNew ? 'new' : 'existing');
+    } catch(err) {
+      window.location.href = isNew ? '/ngo-register' : '/ngo-dashboard';
+    }
   };
+
 
   return (
     <motion.div initial={{ opacity: 0, scale: 0.95, y: 30 }} animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -339,9 +382,8 @@ function GovtForm({ onBack }: { onBack: () => void }) {
 
   const handleLogin = async () => {
     setLoading(true);
-    localStorage.setItem('sustainify_role', 'govt');
     localStorage.setItem('sustainify_name', name);
-    await signInWithGoogle();
+    await signInWithGoogle('govt');
   };
 
   return (

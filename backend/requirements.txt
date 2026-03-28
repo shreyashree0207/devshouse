@@ -4,3 +4,8 @@ supabase
 python-dotenv
 pyjwt
 httpx
+pillow
+imagehash
+google-genai
+python-multipart
+anthropic

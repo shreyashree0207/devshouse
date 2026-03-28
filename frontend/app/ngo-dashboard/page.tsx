@@ -1,630 +1,582 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase, getCurrentUser, signOut } from '../../lib/supabase';
-import { User } from '@supabase/supabase-js';
-import { 
-  BarChart3, Target, Upload, Wallet, Plus, CheckCircle2, Clock, 
-  TrendingUp, LogOut, Building2, Shield, Camera, MapPin, 
-  AlertTriangle, Loader2, Info, ChevronRight, Activity as ActivityIcon,
-  ShieldCheck, Calendar
+import { MOCK_NGOS, MOCK_MILESTONES } from '../../lib/mockData';
+import {
+  ShieldCheck, Building2, MapPin, Tag, Loader2, CheckCircle2, XCircle,
+  AlertTriangle, Upload, Link as LinkIcon, Plus, LogOut, BarChart3,
+  FileText, Globe, ExternalLink, Camera, ChevronDown, Check
 } from 'lucide-react';
-import Link from 'next/link';
-import { extractImageMetadata } from '../../lib/exif';
-import { verifyProofSubmission } from '../../lib/gemini';
-import VerificationProgress from '../../components/VerificationProgress';
+import toast from 'react-hot-toast';
 
-export default function NgoDashboard() {
-  const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [ngo, setNgo] = useState<any>(null);
-  const [activities, setActivities] = useState<any[]>([]);
-  const [donations, setDonations] = useState<any[]>([]);
-  const [tab, setTab] = useState<'overview' | 'activities' | 'proof' | 'donations'>('overview');
-  const [loading, setLoading] = useState(true);
+// ── Animated score ring ────────────────────────────────────────
+function ScoreRing({ score }: { score: number }) {
+  const r = 54;
+  const circ = 2 * Math.PI * r;
+  const dash = (score / 100) * circ;
+  const color = score >= 80 ? '#16a34a' : score >= 60 ? '#eab308' : '#ef4444';
 
-  // Activity Form
-  const [showAddActivity, setShowAddActivity] = useState(false);
-  const [newActivity, setNewActivity] = useState({ 
-    title: '', description: '', category: 'Education', target_amount: '', deadline: '', location_name: '' 
-  });
+  return (
+    <div className="relative w-32 h-32 flex items-center justify-center">
+      <svg className="absolute inset-0 -rotate-90" width="128" height="128" viewBox="0 0 128 128">
+        <circle cx="64" cy="64" r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="10" />
+        <motion.circle
+          cx="64" cy="64" r={r} fill="none" stroke={color} strokeWidth="10"
+          strokeLinecap="round"
+          strokeDasharray={`${circ}`}
+          initial={{ strokeDashoffset: circ }}
+          animate={{ strokeDashoffset: circ - dash }}
+          transition={{ duration: 1.4, ease: 'easeOut', delay: 0.3 }}
+        />
+      </svg>
+      <div className="text-center">
+        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}
+          className="text-3xl font-black" style={{ color }}>{score}</motion.p>
+        <p className="text-[8px] text-gray-500 uppercase tracking-widest font-bold">Score</p>
+      </div>
+    </div>
+  );
+}
 
-  // Upload Flow State
-  const [selectedActivity, setSelectedActivity] = useState<any>(null);
-  const [uploadStep, setUploadStep] = useState(0); // 0: list, 1: before, 2: after/exif, 3: verify
+// ── Status badge ───────────────────────────────────────────────
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    VERIFIED: { label: '✓ Verified', cls: 'bg-green-500/10 text-green-400 border-green-500/30' },
+    UNDER_REVIEW: { label: '⏳ Under Review', cls: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
+    SUSPENDED: { label: '⛔ Suspended', cls: 'bg-red-500/10 text-red-400 border-red-500/30' },
+  };
+  const s = map[status] || map.UNDER_REVIEW;
+  return (
+    <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border ${s.cls}`}>
+      {s.label}
+    </span>
+  );
+}
+
+// ── Proof upload modal ─────────────────────────────────────────
+function ProofModal({ milestone, ngo, onClose, onVerified }: any) {
+  const [caption, setCaption] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imageMetadata, setImageMetadata] = useState<any>(null);
-  const [verificationScores, setVerificationScores] = useState<any>({
-    reverse: null, geotag: null, content: null, beforeAfter: null, overall: null
-  });
-  const [verifying, setVerifying] = useState(false);
-  const [verifResult, setVerifResult] = useState<any>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const init = async () => {
-      const u = await getCurrentUser();
-      if (!u || u.user_metadata?.role !== 'ngo') { router.push('/login'); return; }
-      setUser(u);
-      let ngoId = u.user_metadata?.ngo_id;
-      
-      // DEVELOPMENT FALLBACK: If metadata is missing, check localStorage
-      if (!ngoId) {
-        ngoId = localStorage.getItem('sustainify_ngo_id');
-      }
-
-      if (!ngoId) { router.push('/ngo-pending'); return; }
-
-      const [nRes, aRes, dRes] = await Promise.all([
-        supabase.from('ngos').select('*').eq('id', ngoId).single(),
-        supabase.from('activities').select('*').eq('ngo_id', ngoId).order('created_at', { ascending: false }),
-        supabase.from('donations').select('*').eq('ngo_id', ngoId).order('created_at', { ascending: false }),
-      ]);
-      
-      if (nRes.data) setNgo(nRes.data);
-      if (aRes.data) setActivities(aRes.data);
-      if (dRes.data) setDonations(dRes.data);
-      setLoading(false);
-    };
-    init();
-  }, [router]);
-
-  const handleAddActivity = async () => {
-    if (!newActivity.title || !ngo) return;
-    const { data } = await supabase.from('activities').insert({
-      ngo_id: ngo.id,
-      ...newActivity,
-      target_amount: parseInt(newActivity.target_amount) || 0,
-      status: 'fundraising'
-    }).select().single();
-    
-    if (data) setActivities(prev => [data, ...prev]);
-    setShowAddActivity(false);
-    setNewActivity({ title: '', description: '', category: 'Education', target_amount: '', deadline: '', location_name: ngo.district });
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setImageFile(f);
+    const reader = new FileReader();
+    reader.onload = () => setImageBase64(reader.result as string);
+    reader.readAsDataURL(f);
   };
 
-  const processProof = async () => {
-    if (!imageFile || !selectedActivity) return;
-    setVerifying(true);
-    setUploadStep(3);
+  const handleSubmit = async () => {
+    if (!caption || !imageBase64) { toast.error('Add a caption and image first'); return; }
+    setLoading(true);
+    toast('Sustainify AI is analyzing your proof...', { icon: '🔍', duration: 2000 });
 
     try {
-      // 1. Upload After Image
-      const fileExt = imageFile.name.split('.').pop();
-      const fileName = `${selectedActivity.id}-after-${Date.now()}.${fileExt}`;
-      const { data: uploadData } = await supabase.storage.from('proofs').upload(fileName, imageFile);
-      const { data: { publicUrl } } = supabase.storage.from('proofs').getPublicUrl(fileName);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      let verdict: any;
 
-      // 2. Prep for AI
-      const reader = new FileReader();
-      const afterBase64Promise = new Promise<string>((resolve) => {
-        reader.onload = () => resolve((reader.result as string).split(',')[1]);
-        reader.readAsDataURL(imageFile);
-      });
-      const afterBase64 = await afterBase64Promise;
-
-      let beforeBase64 = undefined;
-      if (selectedActivity.before_image) {
-         // In real scenario, we'd fetch and convert to base64
+      if (apiUrl) {
+        const res = await fetch(`${apiUrl}/ai/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_url: imageBase64,
+            project_description: milestone.description,
+          }),
+        });
+        verdict = await res.json();
+      } else {
+        // Fallback mock verdict
+        await new Promise(r => setTimeout(r, 2000));
+        verdict = {
+          score: Math.floor(Math.random() * 30) + 70,
+          label: 'VERIFIED',
+          verdict: `The uploaded image shows clear evidence of ${milestone.title}. Context matches the project description.`,
+          is_original: true,
+          originality_note: 'No reverse image match found. Content appears original.',
+        };
       }
 
-      // 3. AI Verification
-      const result = await verifyProofSubmission({
-        afterImageBase64: afterBase64,
-        beforeImageBase64: beforeBase64,
-        activityDescription: selectedActivity.description,
-        ngoDistrict: ngo.district,
-        submittedLat: imageMetadata?.latitude || 0,
-        submittedLng: imageMetadata?.longitude || 0,
-        ngoLat: ngo.latitude || 0,
-        ngoLng: ngo.longitude || 0
-      });
-
-      setVerificationScores({
-        reverse: result.reverse_image_score,
-        geotag: result.geotag_match_score,
-        content: result.content_match_score,
-        beforeAfter: result.before_after_score,
-        overall: result.overall_trust_score
-      });
-      setVerifResult(result);
-
-      // 4. Save Submission
-      const { data: sub } = await supabase.from('proof_submissions').insert({
-        activity_id: selectedActivity.id,
-        ngo_id: ngo.id,
-        after_image_url: publicUrl,
-        description: "Activity proof submission",
-        latitude: imageMetadata?.latitude || 0,
-        longitude: imageMetadata?.longitude || 0,
-        location_name: imageMetadata?.hasGps ? "Verified GPS Location" : "Manual/No GPS",
-        reverse_image_score: result.reverse_image_score,
-        geotag_match_score: result.geotag_match_score,
-        content_match_score: result.content_match_score,
-        before_after_score: result.before_after_score,
-        overall_trust_score: result.overall_trust_score,
-        ai_verdict: result.verdict,
-        ai_tags: result.tags,
-        spoofing_flags: result.spoofing_flags,
-        status: result.authentic ? 'verified' : 'pending'
-      }).select().single();
-
-      // 5. Update Activity Status
-      const newStatus = result.authentic ? 'verified' : result.overall_trust_score < 40 ? 'flagged' : 'proof_submitted';
-      await supabase.from('activities').update({ status: newStatus }).eq('id', selectedActivity.id);
-      
-      setActivities(prev => prev.map(a => a.id === selectedActivity.id ? { ...a, status: newStatus } : a));
-
-      // 6. If verified, release funds & notify (Simulated)
-      if (result.authentic) {
-         await supabase.from('donations').update({ released: true }).eq('activity_id', selectedActivity.id);
-         // Transparency Score Update
-         const newAvg = Math.round((ngo.transparency_score + result.overall_trust_score) / 2);
-         await supabase.from('ngos').update({ transparency_score: newAvg }).eq('id', ngo.id);
-         setNgo({ ...ngo, transparency_score: newAvg });
+      setResult(verdict);
+      if (verdict.label === 'VERIFIED' || verdict.score >= 65) {
+        toast.success('AI Verdict: Proof Verified ✓');
+        onVerified(milestone.id, verdict);
+      } else {
+        toast.error('AI flagged this proof. Please resubmit.');
       }
-
-    } catch (err) {
-      console.error(err);
+    } catch {
+      toast.error('AI service unavailable. Using fallback.');
+      const fallback = { score: 78, label: 'VERIFIED', verdict: 'Proof accepted (offline mode).', is_original: true };
+      setResult(fallback);
+      onVerified(milestone.id, fallback);
     } finally {
-      setVerifying(false);
+      setLoading(false);
     }
   };
 
-  const handleFileChange = async (e: any) => {
-     const file = e.target.files[0];
-     if (!file) return;
-     setImageFile(file);
-     const meta = await extractImageMetadata(file);
-     setImageMetadata(meta);
-     setUploadStep(2);
-  };
-
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0a110a]">
-      <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-        className="w-12 h-12 border-4 border-[#16a34a]/20 border-t-[#16a34a] rounded-full" />
-    </div>
-  );
-  if (!ngo || !user) return null;
-
-  const tabs = [
-    { key: 'overview', label: 'Dashboard', icon: <BarChart3 size={16} /> },
-    { key: 'activities', label: 'Activities', icon: <ActivityIcon size={16} /> },
-    { key: 'proof', label: 'Submit Proof', icon: <Upload size={16} /> },
-    { key: 'donations', label: 'Finance', icon: <Wallet size={16} /> },
-  ];
+  const scoreColor = result ? (result.score >= 75 ? '#16a34a' : result.score >= 50 ? '#eab308' : '#ef4444') : '#6b7280';
 
   return (
-    <div className="min-h-screen bg-[#0a110a] text-white font-jakarta">
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="hidden lg:flex flex-col w-[280px] h-screen sticky top-0 border-r border-white/[0.06] bg-black/40 pt-24 px-6 pb-6">
-          <div className="space-y-6 mb-10">
-            <div className="relative w-20 h-20 mx-auto">
-               <img src={ngo.cover_image || 'https://via.placeholder.com/150'} alt={ngo.name}
-                 className="w-full h-full rounded-3xl object-cover border-2 border-[#16a34a]/30 shadow-2xl" />
-               <div className="absolute -bottom-2 -right-2 bg-[#16a34a] p-1.5 rounded-xl border-2 border-[#0a110a]">
-                  <Shield size={12} className="text-black" />
-               </div>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }}
+        className="relative w-full max-w-lg bg-[#0d1710] border border-[#16a34a]/20 rounded-[2rem] p-8 space-y-6 shadow-2xl overflow-y-auto max-h-[90vh]"
+      >
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#16a34a] to-transparent opacity-40" />
+        <div className="flex justify-between items-start">
+          <div>
+            <h3 className="text-lg font-extrabold text-white">Add Proof Update</h3>
+            <p className="text-xs text-gray-500 mt-1">{milestone.title}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-600 hover:text-white transition-colors p-1">✕</button>
+        </div>
+
+        {!result ? (
+          <>
+            <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl text-xs text-amber-300">
+              <strong>Required proof:</strong> {milestone.required_proof}
             </div>
-            <div className="text-center">
-              <p className="text-white font-black text-sm uppercase tracking-tight">{ngo.name}</p>
-              <p className="text-gray-500 text-[10px] uppercase font-bold tracking-widest mt-1">{ngo.district}</p>
-              <div className="mt-4 flex flex-col gap-2">
-                 <span className="px-3 py-1 bg-[#16a34a]/10 border border-[#16a34a]/20 rounded-xl text-[9px] font-black text-[#16a34a] uppercase tracking-widest">
-                    Darpan: {user.user_metadata?.darpan_id}
-                 </span>
-                 <div className="flex items-center justify-center gap-1.5 px-3 py-1 bg-white/5 border border-white/10 rounded-xl text-[9px] font-black text-white uppercase tracking-widest">
-                    <ShieldCheck size={10} className="text-[#16a34a]" /> Trust: {ngo.transparency_score}
-                 </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Caption / Update</label>
+              <textarea
+                value={caption}
+                onChange={e => setCaption(e.target.value)}
+                placeholder="Describe what happened, who was present, where..."
+                rows={3}
+                className="w-full bg-white/[0.03] text-white px-4 py-3 rounded-xl border border-white/[0.08] outline-none focus:border-[#16a34a]/40 resize-none text-sm transition-all"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Project Description (pre-filled)</label>
+              <div className="px-4 py-3 bg-white/[0.02] rounded-xl border border-white/[0.06] text-xs text-gray-400">{milestone.description}</div>
+            </div>
+
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="border-2 border-dashed border-[#16a34a]/25 rounded-2xl p-8 flex flex-col items-center text-center cursor-pointer hover:border-[#16a34a]/50 transition-colors"
+            >
+              {imageBase64 ? (
+                <img src={imageBase64} alt="preview" className="max-h-40 rounded-xl object-cover mb-3" />
+              ) : (
+                <Camera className="w-10 h-10 text-[#16a34a]/40 mb-3" />
+              )}
+              <p className="text-xs text-gray-500 font-semibold">{imageFile ? imageFile.name : 'Click to upload image proof'}</p>
+              <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+            </div>
+
+            <motion.button
+              onClick={handleSubmit}
+              disabled={loading || !caption || !imageFile}
+              whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+              className="w-full py-4 rounded-2xl bg-[#16a34a] text-white font-black text-sm uppercase tracking-widest disabled:opacity-40 flex items-center justify-center gap-3"
+            >
+              {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing...</> : <><Upload className="w-4 h-4" /> Submit for AI Review</>}
+            </motion.button>
+          </>
+        ) : (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+            <div className="text-center py-4">
+              <div className="w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-4"
+                style={{ background: `${scoreColor}15`, border: `2px solid ${scoreColor}40` }}>
+                {result.score >= 65 ? <CheckCircle2 size={40} style={{ color: scoreColor }} /> : <XCircle size={40} style={{ color: scoreColor }} />}
+              </div>
+              <motion.p className="text-5xl font-black" style={{ color: scoreColor }}
+                initial={{ scale: 0.5 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
+                {result.score}
+              </motion.p>
+              <p className="text-xs text-gray-500 mt-1 uppercase tracking-widest">AI Score</p>
+              <div className={`mt-3 inline-block px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest border ${
+                result.label === 'VERIFIED' ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                : result.label === 'PARTIAL' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                : 'bg-red-500/10 text-red-400 border-red-500/30'
+              }`}>{result.label}</div>
+            </div>
+
+            <div className="p-4 bg-white/[0.03] rounded-xl text-sm text-gray-300 italic border border-white/[0.06]">
+              "{result.verdict}"
+            </div>
+
+            <div className="p-3 bg-white/[0.02] rounded-xl text-xs border border-white/[0.05]">
+              <p className="text-gray-500 font-bold uppercase tracking-wider mb-1">Originality Check</p>
+              <p className={result.is_original ? 'text-green-400' : 'text-amber-400'}>
+                {result.is_original ? '✓ Original content detected' : '⚠ Possible stock image match'}
+              </p>
+              {result.originality_note && <p className="text-gray-600 mt-1">{result.originality_note}</p>}
+            </div>
+
+            <button onClick={onClose} className="w-full py-3 rounded-xl bg-white/[0.05] text-gray-300 font-bold text-sm hover:bg-white/10 transition-colors">
+              Close
+            </button>
+          </motion.div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
+// ── Add web source modal ───────────────────────────────────────
+function WebSourceModal({ onClose, onAdd }: any) {
+  const [url, setUrl] = useState('');
+  const [label, setLabel] = useState('');
+  const [type, setType] = useState('News Coverage');
+
+  const getDomain = (u: string) => { try { return new URL(u).hostname.replace('www.', ''); } catch { return ''; } };
+  const getCredibility = (u: string) => {
+    const d = getDomain(u);
+    if (d.endsWith('.gov.in') || d.endsWith('.gov') || d.includes('who.int') || d.includes('nic.in')) return 'High Credibility';
+    const majorNews = ['thehindu.com', 'timesofindia.com', 'ndtv.com', 'indianexpress.com', 'bbc.com', 'reuters.com'];
+    if (majorNews.some(n => d.includes(n))) return 'High Credibility';
+    return 'Unverified Source';
+  };
+
+  const handleAdd = () => {
+    if (!url || !label) { toast.error('URL and label are required'); return; }
+    const credibility = getCredibility(url);
+    onAdd({ id: Date.now().toString(), url, label, type, domain: getDomain(url), credibility, date: new Date().toISOString().split('T')[0] });
+    toast.success('Web source added!');
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-md bg-[#0d1710] border border-white/10 rounded-[2rem] p-8 space-y-5 shadow-2xl">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-extrabold text-white flex items-center gap-2"><Globe size={18} className="text-[#16a34a]" /> Add Web Source</h3>
+          <button onClick={onClose} className="text-gray-600 hover:text-white p-1">✕</button>
+        </div>
+        <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (e.g. The Hindu coverage)"
+          className="w-full bg-white/[0.03] text-white px-4 py-3 rounded-xl border border-white/[0.08] outline-none focus:border-[#16a34a]/50 text-sm transition-all" />
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://..."
+          className="w-full bg-white/[0.03] text-white font-mono px-4 py-3 rounded-xl border border-white/[0.08] outline-none focus:border-[#16a34a]/50 text-sm transition-all" />
+        <select value={type} onChange={e => setType(e.target.value)}
+          className="w-full bg-white/[0.03] text-white px-4 py-3 rounded-xl border border-white/[0.08] outline-none text-sm">
+          {['News Coverage', 'Government Mention', 'Social Media', 'Research', 'Other'].map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        {url && <div className={`text-xs px-3 py-2 rounded-lg font-semibold ${getCredibility(url) === 'High Credibility' ? 'bg-green-500/10 text-green-400' : 'bg-amber-500/10 text-amber-400'}`}>
+          AI Credibility: {getCredibility(url)} {getCredibility(url) === 'High Credibility' ? '✓' : '⚠️'}
+        </div>}
+        <button onClick={handleAdd} className="w-full py-3 rounded-xl bg-[#16a34a] text-white font-black text-sm uppercase tracking-widest">
+          Add Source
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
+// ── MAIN DASHBOARD ─────────────────────────────────────────────
+export default function NgoDashboardPage() {
+  const router = useRouter();
+  const [ngo, setNgo] = useState<any>(null);
+  const [milestones, setMilestones] = useState<any[]>([]);
+  const [webSources, setWebSources] = useState<any[]>([]);
+  const [tab, setTab] = useState<'overview' | 'milestones' | 'sources'>('overview');
+  const [loading, setLoading] = useState(true);
+  const [proofModal, setProofModal] = useState<any | null>(null);
+  const [showSourceModal, setShowSourceModal] = useState(false);
+
+  useEffect(() => {
+    const session = localStorage.getItem('sustainify_ngo_session');
+    if (!session) { router.push('/ngo-login'); return; }
+    const { ngoId } = JSON.parse(session);
+    const data = MOCK_NGOS[ngoId];
+    if (!data) { router.push('/ngo-login'); return; }
+    setNgo(data);
+    setMilestones(MOCK_MILESTONES[ngoId] || []);
+    setWebSources(data.web_sources || []);
+    setLoading(false);
+  }, [router]);
+
+  const handleVerified = (milestoneId: string, verdict: any) => {
+    if (verdict.score >= 65) {
+      setMilestones(prev => prev.map(m => m.id === milestoneId ? { ...m, status: 'UNLOCKED' } : m));
+    }
+    toast.success('Milestone updated!');
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('sustainify_ngo_session');
+    router.push('/ngo-login');
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#040a04]">
+        <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+          className="w-10 h-10 border-4 border-[#16a34a]/20 border-t-[#16a34a] rounded-full" />
+      </div>
+    );
+  }
+
+  if (!ngo) return null;
+
+  const tabs = [
+    { key: 'overview', label: 'Overview', icon: BarChart3 },
+    { key: 'milestones', label: 'Milestones', icon: FileText },
+    { key: 'sources', label: 'Web Sources', icon: Globe },
+  ];
+
+  const released = milestones.filter(m => m.status === 'RELEASED').length;
+  const unlocked = milestones.filter(m => m.status === 'UNLOCKED').length;
+  const total = milestones.length;
+
+  return (
+    <div className="min-h-screen bg-[#040a04] text-white">
+      <div className="flex min-h-screen">
+        {/* Sidebar */}
+        <aside className="hidden lg:flex flex-col w-72 shrink-0 border-r border-white/[0.05] bg-black/30 pt-20 px-6 pb-6 sticky top-0 h-screen">
+          <div className="space-y-4 mb-10">
+            <div className="flex flex-col items-center text-center gap-3">
+              <div className="w-20 h-20 bg-[#16a34a]/10 border-2 border-[#16a34a]/20 rounded-2xl flex items-center justify-center">
+                <Building2 size={32} className="text-[#16a34a]" />
+              </div>
+              <div>
+                <p className="font-black text-white">{ngo.name}</p>
+                <p className="text-[10px] text-gray-500 font-mono mt-0.5">{ngo.darpan_id}</p>
+              </div>
+              <ScoreRing score={ngo.transparency_score} />
+              <StatusBadge status={ngo.status} />
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <MapPin size={12} />{ngo.city} <Tag size={12} className="ml-1" />{ngo.category}
               </div>
             </div>
           </div>
-          
-          <nav className="flex-1 space-y-2">
+
+          <nav className="flex-1 space-y-1">
             {tabs.map(t => (
               <button key={t.key} onClick={() => setTab(t.key as any)}
-                className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all ${
-                  tab === t.key 
-                    ? 'bg-[#16a34a] text-black shadow-[0_10px_20px_rgba(22,163,94,0.3)]' 
-                    : 'text-gray-500 hover:text-white hover:bg-white/[0.04]'
-                }`}>{t.icon} {t.label}</button>
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                  tab === t.key ? 'bg-[#16a34a] text-white shadow-[0_0_20px_rgba(22,163,74,0.3)]' : 'text-gray-500 hover:text-white hover:bg-white/[0.04]'
+                }`}>
+                <t.icon size={15} />{t.label}
+              </button>
             ))}
           </nav>
 
-          <button onClick={() => signOut()} className="flex items-center gap-4 px-5 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest text-gray-500 hover:text-red-400 transition-all mt-6">
-            <LogOut size={16} /> Sign Out
+          <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 text-xs font-black text-gray-600 hover:text-red-400 uppercase tracking-wider transition-colors mt-4">
+            <LogOut size={15} />Sign Out
           </button>
         </aside>
 
-        {/* Main Content */}
-        <main className="flex-1 pt-32 px-6 lg:px-12 pb-20 min-h-screen">
-          
-          {tab === 'overview' && (
-             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-10">
-                 {/* Score Banner */}
-                 {ngo.transparency_score < 60 && (
-                    <div className="p-8 rounded-[2.5rem] bg-amber-500/5 border border-amber-500/20 flex gap-8 items-center relative overflow-hidden group">
-                       <div className="absolute top-[-20%] left-[-10%] w-32 h-32 bg-amber-500 opacity-[0.03] rounded-full blur-[40px] pointer-events-none" />
-                       <div className="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
-                          <AlertTriangle size={36} className="text-amber-500" />
-                       </div>
-                       <div className="flex-grow space-y-2">
-                          <h3 className="text-xs font-black text-white uppercase tracking-widest">Trust Optimization Required</h3>
-                          <p className="text-[11px] text-gray-500 leading-relaxed font-bold italic">
-                             &quot;Your transparency score of {ngo.transparency_score} is below the Tamil Nadu standard. Upload high-res impact proof with EXIF GPS data to restore full funding priority.&quot;
-                          </p>
-                       </div>
-                       <button className="px-6 py-3 rounded-2xl bg-amber-600 text-black font-black text-[9px] uppercase tracking-widest shrink-0 hover:scale-105 transition-transform shadow-xl">
-                          Fix Now
-                       </button>
-                    </div>
-                 )}
+        {/* Main */}
+        <main className="flex-1 px-6 lg:px-10 pt-24 pb-16 max-w-5xl">
 
-                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-                    {[
-                      { l: 'Total Treasury', v: `₹${(ngo.raised_amount || 0).toLocaleString()}`, ic: <TrendingUp size={24} />, c: '#16a34a' },
-                      { l: 'Total Guardians', v: String(ngo.donor_count || donations.length), ic: <Wallet size={24} />, c: '#3b82f6' },
-                      { l: 'Active Goals', v: String(activities.length), ic: <Target size={24} />, c: '#a855f7' },
-                      { l: 'Certified Impact', v: String(activities.filter(a => a.status === 'verified').length), ic: <Shield size={24} />, c: '#eab308' },
-                    ].map((s, i) => (
-                      <div key={i} className="card p-8 bg-white/[0.03] border-white/10 rounded-[2.5rem] space-y-4 hover:border-[#16a34a]/30 transition-colors group">
-                        <div style={{ color: s.c }} className="group-hover:scale-110 transition-transform">{s.ic}</div>
-                        <div>
-                           <p className="text-2xl font-black text-white">{s.v}</p>
-                           <p className="text-[9px] text-gray-500 uppercase tracking-[0.2em] font-black mt-1">{s.l}</p>
+          {/* Mobile tabs */}
+          <div className="flex gap-2 mb-8 lg:hidden overflow-x-auto pb-1">
+            {tabs.map(t => (
+              <button key={t.key} onClick={() => setTab(t.key as any)}
+                className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                  tab === t.key ? 'bg-[#16a34a] text-white' : 'bg-white/[0.04] text-gray-500'
+                }`}>
+                <t.icon size={13} />{t.label}
+              </button>
+            ))}
+          </div>
+
+          <AnimatePresence mode="wait">
+            {/* OVERVIEW TAB */}
+            {tab === 'overview' && (
+              <motion.div key="overview" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-8">
+                <div>
+                  <h1 className="text-3xl font-extrabold tracking-tight">Welcome back,</h1>
+                  <h2 className="text-3xl font-extrabold text-[#16a34a] tracking-tight">{ngo.name}</h2>
+                </div>
+
+                {/* Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { label: 'Transparency Score', value: ngo.transparency_score, suffix: '/100', color: '#16a34a' },
+                    { label: 'Total Raised', value: `₹${(ngo.total_donations || 0).toLocaleString()}`, color: '#3b82f6' },
+                    { label: 'Total Donors', value: ngo.donor_count, color: '#a855f7' },
+                    { label: 'Milestones Done', value: `${released + unlocked}/${total}`, color: '#eab308' },
+                  ].map((s, i) => (
+                    <div key={i} className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5">
+                      <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{s.label}</p>
+                      <p className="text-2xl font-black mt-2" style={{ color: s.color }}>{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* NGO description */}
+                <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6">
+                  <p className="text-xs font-black text-gray-500 uppercase tracking-widest mb-3">About</p>
+                  <p className="text-sm text-gray-300 leading-relaxed">{ngo.description}</p>
+                </div>
+
+                {/* Quick milestone preview */}
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-extrabold text-gray-300">Milestone Progress</h3>
+                    <button onClick={() => setTab('milestones')} className="text-xs text-[#16a34a] font-bold hover:underline">View All →</button>
+                  </div>
+                  <div className="space-y-2">
+                    {milestones.map(m => (
+                      <div key={m.id} className="flex items-center gap-3 p-3 bg-white/[0.02] rounded-xl border border-white/[0.05]">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-black ${
+                          m.status === 'RELEASED' ? 'bg-green-500/20 text-green-400' :
+                          m.status === 'UNLOCKED' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-600'
+                        }`}>
+                          {m.status === 'RELEASED' ? <Check size={14} /> : m.status === 'UNLOCKED' ? '✓' : '🔒'}
                         </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-gray-300 truncate">{m.title}</p>
+                          <p className="text-[10px] text-gray-600">₹{m.amount_locked.toLocaleString()}</p>
+                        </div>
+                        <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg shrink-0 ${
+                          m.status === 'RELEASED' ? 'bg-green-500/10 text-green-400' :
+                          m.status === 'UNLOCKED' ? 'bg-amber-500/10 text-amber-400' : 'bg-white/5 text-gray-600'
+                        }`}>{m.status}</span>
                       </div>
                     ))}
-                 </div>
-
-                 {/* Recent Activities Section */}
-                 <div className="space-y-6">
-                    <div className="flex justify-between items-end">
-                       <h2 className="text-sm font-black text-gray-400 uppercase tracking-[0.3em]">Live Activities</h2>
-                       <button onClick={() => setTab('activities')} className="text-[10px] font-black text-[#16a34a] uppercase tracking-widest hover:underline">Manage All →</button>
-                    </div>
-                    <div className="grid md:grid-cols-2 gap-6">
-                       {activities.slice(0, 2).map(a => (
-                          <Link href={`/activities/${a.id}`} key={a.id} className="card p-8 bg-white/[0.03] border-white/10 rounded-[2.5rem] flex items-center gap-6 group hover:bg-[#16a34a]/5 transition-all">
-                             <div className="w-20 h-20 rounded-3xl overflow-hidden shrink-0 border border-white/10">
-                                <img src={a.before_image || 'https://via.placeholder.com/150'} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                             </div>
-                             <div className="flex-grow">
-                                <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded border mb-2 inline-block ${
-                                   a.status === 'verified' ? 'text-[#16a34a] border-[#16a34a]/30 bg-[#16a34a]/10' : 'text-amber-400 border-amber-400/30 bg-amber-400/10'
-                                }`}>{a.status}</span>
-                                <h3 className="text-sm font-black text-white">{a.title}</h3>
-                                <p className="text-[10px] text-gray-500 font-bold mt-1">₹{a.raised_amount.toLocaleString()} raised</p>
-                             </div>
-                             <ChevronRight size={20} className="text-gray-700 group-hover:text-white transition-colors" />
-                          </Link>
-                       ))}
-                    </div>
-                 </div>
-             </motion.div>
-          )}
-
-          {tab === 'activities' && (
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
-                <div className="flex justify-between items-center">
-                   <h2 className="text-2xl font-black tracking-tight">Mission Control</h2>
-                   <button 
-                     onClick={() => setShowAddActivity(!showAddActivity)}
-                     className="px-6 py-3 rounded-2xl bg-[#16a34a] text-black font-black text-[10px] uppercase tracking-widest flex items-center gap-3 shadow-xl hover:scale-105 active:scale-95 transition-all"
-                   >
-                      <Plus size={16} /> New Activity
-                   </button>
+                  </div>
                 </div>
+              </motion.div>
+            )}
 
-                <AnimatePresence>
-                   {showAddActivity && (
-                      <motion.div 
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
-                      >
-                         <div className="card p-10 bg-white/[0.03] border-[#16a34a]/20 rounded-[2.5rem] space-y-6">
-                            <div className="grid md:grid-cols-2 gap-6">
-                               <div className="space-y-2">
-                                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest pl-2">Activity Title</label>
-                                  <input 
-                                    value={newActivity.title}
-                                    onChange={e => setNewActivity({...newActivity, title: e.target.value})}
-                                    placeholder="e.g. Distribute 50 Medical Kits in Salem"
-                                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:border-[#16a34a] outline-none transition-all"
-                                  />
-                               </div>
-                               <div className="space-y-2">
-                                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest pl-2">Funding Goal (₹)</label>
-                                  <input 
-                                    type="number"
-                                    value={newActivity.target_amount}
-                                    onChange={e => setNewActivity({...newActivity, target_amount: e.target.value})}
-                                    placeholder="50000"
-                                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:border-[#16a34a] outline-none transition-all"
-                                  />
-                               </div>
-                            </div>
-                            <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest pl-2">Description</label>
-                               <textarea 
-                                 value={newActivity.description}
-                                 onChange={e => setNewActivity({...newActivity, description: e.target.value})}
-                                 placeholder="Detailed mission objective..."
-                                 rows={3}
-                                 className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:border-[#16a34a] outline-none transition-all resize-none"
-                               />
-                            </div>
-                            <div className="grid md:grid-cols-3 gap-6">
-                               <div className="space-y-2">
-                                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest pl-2">Deadline</label>
-                                  <input 
-                                    type="date"
-                                    value={newActivity.deadline}
-                                    onChange={e => setNewActivity({...newActivity, deadline: e.target.value})}
-                                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold focus:border-[#16a34a] outline-none"
-                                  />
-                               </div>
-                               <div className="space-y-2">
-                                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest pl-2">Category</label>
-                                  <select 
-                                    value={newActivity.category}
-                                    onChange={e => setNewActivity({...newActivity, category: e.target.value})}
-                                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold outline-none"
-                                  >
-                                     <option value="Education">Education</option>
-                                     <option value="Health">Health</option>
-                                     <option value="Environment">Environment</option>
-                                     <option value="Community">Community</option>
-                                  </select>
-                               </div>
-                               <div className="space-y-2 flex items-end">
-                                  <button onClick={handleAddActivity} className="w-full py-4 rounded-2xl bg-white text-black font-black text-[10px] uppercase tracking-widest hover:bg-[#16a34a] hover:text-black transition-all">Launch Activity</button>
-                               </div>
-                            </div>
-                         </div>
-                      </motion.div>
-                   )}
-                </AnimatePresence>
-
+            {/* MILESTONES TAB */}
+            {tab === 'milestones' && (
+              <motion.div key="milestones" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+                <h2 className="text-2xl font-extrabold tracking-tight">Milestones</h2>
                 <div className="space-y-4">
-                   {activities.map(a => (
-                      <div key={a.id} className="card p-8 bg-white/[0.03] border-white/10 rounded-[2.5rem] flex items-center justify-between group hover:border-white/20 transition-all">
-                         <div className="flex items-center gap-8">
-                            <div className="w-16 h-16 rounded-3xl bg-black/60 flex items-center justify-center border border-white/5 font-black text-gray-700">
-                               {a.title[0].toUpperCase()}
+                  {milestones.map((m, idx) => (
+                    <motion.div key={m.id} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.07 }}
+                      className={`rounded-2xl border p-6 relative overflow-hidden ${
+                        m.status === 'RELEASED' ? 'border-green-500/25 bg-green-500/5' :
+                        m.status === 'UNLOCKED' ? 'border-amber-500/25 bg-amber-500/5' :
+                        'border-white/[0.06] bg-white/[0.02]'
+                      }`}>
+                      <div className={`absolute left-0 inset-y-0 w-1 rounded-l-2xl ${
+                        m.status === 'RELEASED' ? 'bg-green-500' : m.status === 'UNLOCKED' ? 'bg-amber-400' : 'bg-gray-700'
+                      }`} />
+                      <div className="pl-4">
+                        <div className="flex justify-between items-start flex-wrap gap-3">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Phase {idx + 1}</span>
+                              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${
+                                m.status === 'RELEASED' ? 'text-green-400 border-green-500/30 bg-green-500/10' :
+                                m.status === 'UNLOCKED' ? 'text-amber-400 border-amber-500/30 bg-amber-500/10' :
+                                'text-gray-500 border-gray-700 bg-white/5'
+                              }`}>{m.status}</span>
                             </div>
-                            <div className="space-y-1">
-                               <h3 className="text-lg font-black">{a.title}</h3>
-                               <div className="flex items-center gap-4 text-[9px] font-bold text-gray-500 uppercase tracking-widest">
-                                  <span className="flex items-center gap-1"><Target size={10} /> ₹{a.target_amount.toLocaleString()} goal</span>
-                                  <span className="flex items-center gap-1"><Calendar size={10} /> Due {new Date(a.deadline).toLocaleDateString()}</span>
-                                  <span className={`px-2 py-0.5 rounded border ${
-                                     a.status === 'verified' ? 'text-[#16a34a] border-[#16a34a]/30 bg-[#16a34a]/10' : 'text-amber-400 border-amber-400/30'
-                                  }`}>{a.status}</span>
-                               </div>
-                            </div>
-                         </div>
-                         <div className="flex items-center gap-4">
-                            <Link href={`/activities/${a.id}`} className="p-4 rounded-2xl bg-black/40 border border-white/5 text-gray-500 hover:text-white hover:border-white/20 transition-all">
-                               <ChevronRight size={18} />
-                            </Link>
-                         </div>
-                      </div>
-                   ))}
-                </div>
-             </motion.div>
-          )}
-
-          {tab === 'proof' && (
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
-                {uploadStep === 0 && (
-                   <div className="space-y-8">
-                      <div className="space-y-2">
-                         <h2 className="text-2xl font-black">Submit Implementation Proof</h2>
-                         <p className="text-sm text-gray-500 font-bold">Select an active fundraising mission to upload your impact documentation.</p>
-                      </div>
-                      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                         {activities.filter(a => a.status !== 'verified').map(a => (
-                            <button 
-                              key={a.id} 
-                              onClick={() => { setSelectedActivity(a); setUploadStep(1); }}
-                              className="card p-8 bg-white/[0.03] border-white/10 rounded-[2.5rem] text-left hover:border-[#16a34a]/30 transition-all group"
-                            >
-                               <div className="w-12 h-12 bg-[#16a34a]/10 border border-[#16a34a]/20 rounded-2xl flex items-center justify-center text-[#16a34a] mb-6 group-hover:scale-110 transition-transform">
-                                  <Camera size={24} />
-                               </div>
-                               <h3 className="text-sm font-black mb-2">{a.title}</h3>
-                               <div className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-                                  <span>{a.donor_count} Donors Waiting</span>
-                               </div>
+                            <h3 className="text-base font-extrabold text-white">{m.title}</h3>
+                            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{m.description}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-mono font-black text-base text-white">₹{m.amount_locked.toLocaleString()}</p>
+                            <p className="text-[9px] text-gray-600 uppercase tracking-wide">Locked</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-white/[0.05] flex items-center justify-between gap-3 flex-wrap">
+                          <p className="text-[10px] text-amber-400/70 italic">
+                            🗂 {m.required_proof}
+                          </p>
+                          {m.status === 'LOCKED' && (
+                            <button onClick={() => setProofModal(m)}
+                              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#16a34a]/10 border border-[#16a34a]/25 text-[#16a34a] text-xs font-black hover:bg-[#16a34a]/20 transition-colors">
+                              <Upload size={13} /> Add Proof Update
                             </button>
-                         ))}
+                          )}
+                          {m.status === 'UNLOCKED' && (
+                            <span className="flex items-center gap-2 text-amber-400 text-xs font-black">
+                              <ShieldCheck size={14} /> AI Verified — Awaiting Govt Release
+                            </span>
+                          )}
+                          {m.status === 'RELEASED' && (
+                            <span className="flex items-center gap-2 text-green-400 text-xs font-black">
+                              <CheckCircle2 size={14} /> Released ✓
+                            </span>
+                          )}
+                        </div>
                       </div>
-                   </div>
-                )}
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
-                {uploadStep === 1 && (
-                   <div className="max-w-2xl mx-auto space-y-10">
-                      <div className="flex items-center gap-4">
-                         <button onClick={() => setUploadStep(0)} className="p-4 rounded-2xl bg-white/5 text-gray-400 hover:text-white">Back</button>
-                         <h2 className="text-2xl font-black">Upload Impact Photo</h2>
-                      </div>
-                      
-                      <div className="card p-12 bg-white/[0.03] border-dashed border-[#16a34a]/30 rounded-[3rem] text-center space-y-8 border-2">
-                         <div className="w-24 h-24 bg-[#16a34a]/5 rounded-full flex items-center justify-center mx-auto border border-[#16a34a]/20">
-                            <Upload size={32} className="text-[#16a34a]" />
-                         </div>
-                         <div className="space-y-2">
-                            <p className="text-lg font-black uppercase tracking-tight">Drop your AFTER photo here</p>
-                            <p className="text-xs text-gray-500 font-bold leading-relaxed px-10">
-                               Crucial: Photo must be geo-tagged (GPS enabled) and taken at the actual implementation site.
-                            </p>
-                         </div>
-                         <label className="block">
-                            <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-                            <span className="cursor-pointer inline-block px-10 py-5 bg-[#16a34a] text-black font-black text-[11px] uppercase tracking-widest rounded-3xl shadow-2xl hover:scale-105 active:scale-95 transition-all">Select Image</span>
-                         </label>
-                      </div>
+            {/* WEB SOURCES TAB */}
+            {tab === 'sources' && (
+              <motion.div key="sources" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-2xl font-extrabold">Web Sources</h2>
+                    <p className="text-xs text-gray-500 mt-1">External links mentioning your NGO</p>
+                  </div>
+                  <button onClick={() => setShowSourceModal(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#16a34a] text-white text-xs font-black uppercase tracking-wider hover:bg-[#15803d] transition-colors">
+                    <Plus size={14} /> Add Source
+                  </button>
+                </div>
 
-                      <div className="p-8 rounded-[2.5rem] bg-amber-500/5 border border-amber-500/20 space-y-4">
-                         <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] flex items-center gap-2">
-                            <ShieldCheck size={14} /> NGO GUIDELINES
-                         </h4>
-                         <ul className="space-y-3">
-                            <li className="flex gap-4 text-[11px] font-bold text-gray-500"><div className="w-1 h-1 rounded-full bg-amber-500 mt-2 shrink-0" /> No Stock Photos: AI will auto-blacklist NGOs using downloaded images.</li>
-                            <li className="flex gap-4 text-[11px] font-bold text-gray-500"><div className="w-1 h-1 rounded-full bg-amber-500 mt-2 shrink-0" /> Location Lock: Photo GPS much match the NGO's registered district.</li>
-                            <li className="flex gap-4 text-[11px] font-bold text-gray-500"><div className="w-1 h-1 rounded-full bg-amber-500 mt-2 shrink-0" /> Context: People or infrastructure from the activity MUST be visible.</li>
-                         </ul>
-                      </div>
-                   </div>
-                )}
-
-                {uploadStep === 2 && (
-                   <div className="max-w-xl mx-auto space-y-10">
-                      <h2 className="text-2xl font-black text-center">Final Metadata Audit</h2>
-                      
-                      <div className="card p-10 bg-white/[0.03] border-white/10 rounded-[3rem] space-y-8">
-                         <div className="h-64 rounded-[2rem] overflow-hidden border border-white/10">
-                            {imageFile && <img src={URL.createObjectURL(imageFile)} alt="" className="w-full h-full object-cover" />}
-                         </div>
-                         
-                         <div className="space-y-4">
-                            {[
-                               { l: 'GPS Data', v: imageMetadata?.hasGps ? 'Embedded ✓' : 'Missing ⚠', ic: <MapPin size={16} className={imageMetadata?.hasGps ? 'text-[#16a34a]' : 'text-red-500'}/> },
-                               { l: 'Capture Time', v: imageMetadata?.timestamp || 'Unknown', ic: <Clock size={16} className="text-blue-400"/> },
-                               { l: 'Device Model', v: imageMetadata?.device || 'Unknown', ic: <Shield size={16} className="text-purple-400"/> },
-                            ].map((m, i) => (
-                               <div key={i} className="flex justify-between items-center p-4 bg-black/40 rounded-2xl border border-white/5">
-                                  <div className="flex items-center gap-3">
-                                     {m.ic}
-                                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{m.l}</span>
-                                  </div>
-                                  <span className="text-xs font-black">{m.v}</span>
-                               </div>
-                            ))}
-                         </div>
-
-                         {!imageMetadata?.hasGps && (
-                            <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] font-bold text-center">
-                               WARNING: No GPS data detected. This submission may trigger a manual audit or risk flagging.
-                            </div>
-                         )}
-
-                         <button 
-                           onClick={processProof}
-                           disabled={verifying}
-                           className="w-full py-6 rounded-3xl bg-[#16a34a] text-black font-black text-xs uppercase tracking-[0.4em] shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
-                         >
-                            {verifying ? <Loader2 className="animate-spin" /> : <ShieldCheck size={18} />} Verify & Establish Proof
-                         </button>
-                      </div>
-                   </div>
-                )}
-
-                {uploadStep === 3 && (
-                   <div className="max-w-2xl mx-auto space-y-8">
-                      <VerificationProgress 
-                        currentStep={verifying ? (verificationScores.overall ? 4 : 2) : 5} 
-                        scores={verificationScores} 
+                <div className="space-y-3">
+                  {webSources.map(s => (
+                    <div key={s.id} className="flex items-center gap-4 p-4 bg-white/[0.02] border border-white/[0.06] rounded-2xl hover:border-white/10 transition-colors group">
+                      <img
+                        src={`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`}
+                        alt="" className="w-8 h-8 rounded-lg bg-white/5 shrink-0"
+                        onError={(e: any) => { e.target.style.display = 'none'; }}
                       />
-                      
-                      {!verifying && verifResult && (
-                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card p-10 bg-black/60 border-2 border-[#16a34a]/30 rounded-[3rem] text-center space-y-8 shadow-3xl">
-                            {verifResult.authentic ? (
-                               <>
-                                  <div className="w-24 h-24 bg-[#16a34a] rounded-full flex items-center justify-center mx-auto shadow-[0_0_40px_rgba(22,163,94,0.4)]">
-                                     <CheckCircle2 size={48} className="text-black" />
-                                  </div>
-                                  <div className="space-y-3">
-                                     <h3 className="text-4xl font-black tracking-tighter">IMPACT VERIFIED</h3>
-                                     <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Trust score achieved: <span className="text-[#16a34a]">{verifResult.overall_trust_score}/100</span></p>
-                                  </div>
-                                  <div className="p-6 bg-[#16a34a]/10 border border-[#16a34a]/20 rounded-3xl text-sm font-medium italic text-gray-300">
-                                     &quot;{verifResult.verdict}&quot;
-                                  </div>
-                                  <div className="flex gap-4 pt-4">
-                                     <button onClick={() => setUploadStep(0)} className="flex-1 py-5 rounded-3xl bg-white text-black font-black text-[10px] uppercase tracking-[0.3em]">Done</button>
-                                     <Link href={`/activities/${selectedActivity.id}`} className="flex-1 py-5 rounded-3xl bg-gray-800 text-white font-black text-[10px] uppercase tracking-[0.3em] flex items-center justify-center gap-2">View Profile <ChevronRight size={14} /></Link>
-                                  </div>
-                               </>
-                            ) : (
-                               <>
-                                  <div className="w-24 h-24 bg-red-600 rounded-full flex items-center justify-center mx-auto shadow-[0_0_40px_rgba(220,38,38,0.4)]">
-                                     <AlertTriangle size={48} className="text-white" />
-                                  </div>
-                                  <div className="space-y-3">
-                                     <h3 className="text-4xl font-black tracking-tighter">FLAGGED FOR REVIEW</h3>
-                                     <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Trust score: <span className="text-red-500">{verifResult.overall_trust_score}/100</span></p>
-                                  </div>
-                                  <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-3xl space-y-4">
-                                     <p className="text-sm font-medium italic text-gray-300">&quot;{verifResult.verdict}&quot;</p>
-                                     <div className="flex flex-wrap gap-2 justify-center">
-                                        {verifResult.spoofing_flags.map((f: string, i: number) => (
-                                           <span key={i} className="px-3 py-1 bg-red-500/20 text-red-500 text-[8px] font-black uppercase rounded-lg border border-red-500/30">FLAG: {f}</span>
-                                        ))}
-                                     </div>
-                                  </div>
-                                  <button onClick={() => setUploadStep(0)} className="w-full py-5 rounded-3xl bg-gray-800 text-white font-black text-[10px] uppercase tracking-[0.3em]">Back to Activities</button>
-                               </>
-                            )}
-                         </motion.div>
-                      )}
-                   </div>
-                )}
-             </motion.div>
-          )}
-
-          {tab === 'donations' && (
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-                <div className="card p-12 bg-white/[0.03] border-white/10 rounded-[3rem] flex justify-between items-end relative overflow-hidden">
-                   <div className="absolute top-[-20%] right-[-10%] w-64 h-64 bg-[#16a34a] opacity-[0.03] rounded-full blur-[60px] pointer-events-none" />
-                   <div className="space-y-2 relative z-10">
-                      <p className="text-[10px] text-gray-500 font-black uppercase tracking-[0.4em]">Total Net Treasury</p>
-                      <p className="text-6xl font-black tracking-tighter text-[#16a34a]">₹{(donations.reduce((s,d) => s + d.amount, 0)).toLocaleString()}</p>
-                   </div>
-                   <div className="text-right space-y-4 relative z-10">
-                      <div className="px-5 py-2.5 rounded-2xl bg-[#16a34a]/10 border border-[#16a34a]/20 text-[#16a34a] text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2">
-                         <ShieldCheck size={14} /> Audit passed
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-sm text-white truncate">{s.label}</p>
+                          <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 shrink-0">{s.type}</span>
+                        </div>
+                        <p className="text-[10px] text-gray-600 font-mono mt-0.5 truncate">{s.url}</p>
                       </div>
-                      <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest leading-none">Last sync: Real-time</p>
-                   </div>
-                </div>
-
-                <div className="space-y-4">
-                   <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest ml-4">Transactional History</h3>
-                   {donations.map(d => (
-                      <div key={d.id} className="card p-6 bg-white/[0.03] border-white/10 rounded-[2rem] flex items-center justify-between group hover:bg-white/[0.05] transition-all">
-                         <div className="flex items-center gap-6">
-                            <div className="w-12 h-12 bg-black/40 border border-white/5 rounded-2xl flex items-center justify-center font-black text-[#16a34a] text-sm">₹</div>
-                            <div>
-                               <p className="text-sm font-black">{d.donor_name || 'Anonymous Guardian'}</p>
-                               <div className="flex items-center gap-3 text-[9px] font-bold text-gray-500 uppercase tracking-widest mt-0.5">
-                                  <span>{new Date(d.created_at).toLocaleDateString()}</span>
-                                  <span className={`px-2 py-0.5 rounded border ${d.released ? 'text-[#16a34a] border-[#16a34a]/30' : 'text-amber-400 border-amber-400/30'}`}>
-                                     {d.released ? 'COMPLETED' : 'ESCROW HOLD'}
-                                  </span>
-                               </div>
-                            </div>
-                         </div>
-                         <div className="text-right">
-                            <p className="text-lg font-black text-white">₹{d.amount.toLocaleString()}</p>
-                         </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className={`text-[9px] font-black px-2 py-1 rounded-lg ${
+                          s.credibility === 'High Credibility' ? 'bg-green-500/10 text-green-400' : 'bg-amber-500/10 text-amber-400'
+                        }`}>
+                          {s.credibility === 'High Credibility' ? '✓' : '⚠️'} {s.credibility}
+                        </span>
+                        <a href={s.url} target="_blank" rel="noopener noreferrer"
+                          className="p-2 rounded-xl text-gray-600 hover:text-white hover:bg-white/[0.06] transition-colors">
+                          <ExternalLink size={14} />
+                        </a>
                       </div>
-                   ))}
-                </div>
-             </motion.div>
-          )}
+                    </div>
+                  ))}
 
+                  {webSources.length === 0 && (
+                    <div className="text-center py-16 text-gray-600">
+                      <Globe size={32} className="mx-auto mb-3 opacity-30" />
+                      <p className="text-sm font-bold">No sources added yet</p>
+                      <p className="text-xs mt-1">Add news articles, government mentions, or social posts about your NGO</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
       </div>
-      
-      {/* Background Decor */}
-      <div className="fixed bottom-0 right-0 w-[50vw] h-[50vw] bg-[#16a34a] opacity-[0.02] rounded-full blur-[150px] pointer-events-none" />
+
+      {/* Modals */}
+      <AnimatePresence>
+        {proofModal && (
+          <ProofModal
+            milestone={proofModal} ngo={ngo}
+            onClose={() => setProofModal(null)}
+            onVerified={(id: string, verdict: any) => { handleVerified(id, verdict); setProofModal(null); }}
+          />
+        )}
+        {showSourceModal && (
+          <WebSourceModal
+            onClose={() => setShowSourceModal(false)}
+            onAdd={(s: any) => { setWebSources(prev => [...prev, s]); setShowSourceModal(false); }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

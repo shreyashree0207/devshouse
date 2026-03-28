@@ -1,99 +1,45 @@
-import os
-import json
-import urllib.request
-from pathlib import Path
-from dotenv import load_dotenv
+import os, requests
 
-from google import genai
-from google.genai import types
-
-# Load environment variables from the .env file in the backend directory
-env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(env_path)
-
-def verify_image(image_url: str, project_description: str, check_originality: bool = False) -> dict:
-    """
-    Calls the Google Gemini API to verify if an image matches the project description.
-    Also checks for signs of image manipulation or stock reuse, and outputs an appropriate label.
-    """
-    if not image_url:
-        return {"score": 0, "verdict": "No image provided.", "label": "REJECTED"}
-
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return {"score": 0, "verdict": "GEMINI_API_KEY not found.", "label": "REJECTED"}
-
-    client = genai.Client(api_key=api_key)
-
-    prompt = (
-        f"Does this image show activity consistent with this project description: '{project_description}'? "
-        "Also check for signs of image manipulation or reuse (like stock photos), and factor that into the score. "
-        "Give a score out of 100 where 0 is completely unrelated/fake and 100 is perfectly matching/authentic. "
+def verify_image(image_url: str, project_description: str):
+    key = os.getenv("GOOGLE_VISION_KEY")
+    resp = requests.post(
+        f"https://vision.googleapis.com/v1/images:annotate?key={key}",
+        json={"requests":[{"image":{"source":{"imageUri":image_url}},
+            "features":[
+                {"type":"LABEL_DETECTION","maxResults":10},
+                {"type":"SAFE_SEARCH_DETECTION"},
+                {"type":"WEB_DETECTION","maxResults":5}
+            ]}]}
     )
-    
-    if check_originality:
-        prompt += (
-            "Assess whether the image looks like a stock photo, professionally staged photo, or image that could be found "
-            "on the internet rather than a genuine field photo taken by the NGO. "
-            'Respond in exactly this JSON format: {"score": 85, "verdict": "one sentence here", "is_original": true}. '
-        )
+    data = resp.json()["responses"][0]
+    safe = data.get("safeSearchAnnotation",{})
+    if safe.get("adult") in ["LIKELY","VERY_LIKELY"]:
+        return {"score":0,"verdict":"Image flagged unsafe.","labels":[],"flags":["unsafe"],"web_matches":0}
+
+    labels = [l["description"].lower() for l in data.get("labelAnnotations",[])]
+    keywords = project_description.lower().split()
+    matches = sum(1 for k in keywords if any(k in l for l in labels))
+    relevance = int((matches / max(len(keywords),1)) * 40)
+
+    web = data.get("webDetection",{})
+    full_matches = len(web.get("fullMatchingImages",[]))
+    partial_matches = len(web.get("partialMatchingImages",[]))
+    web_count = full_matches + partial_matches
+
+    flags = []
+    penalty = 0
+    if full_matches >= 3:
+        flags.append("image_found_online"); penalty = 40
+    elif full_matches >= 1:
+        flags.append("possible_reuse"); penalty = 20
+
+    score = max(0, min(100, 40 + relevance - penalty))
+
+    if "image_found_online" in flags:
+        verdict = f"⚠️ Image found {web_count} times online — likely recycled content."
+    elif "possible_reuse" in flags:
+        verdict = f"Image found elsewhere online. Detected: {', '.join(labels[:3])}."
     else:
-        prompt += 'Respond in exactly this JSON format: {"score": 85, "verdict": "one sentence here"}. '
-        
-    prompt += 'No extra text.'
+        verdict = f"✅ No prior web matches. Detected: {', '.join(labels[:3])}. Score: {score}/100."
 
-    try:
-        # Fetch the image to pass as bytes to Gemini
-        req = urllib.request.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
-            image_bytes = response.read()
-            mime_type = response.headers.get('content-type', 'image/jpeg')
-
-        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[image_part, prompt],
-        )
-        
-        text = response.text.replace('```json', '').replace('```', '').strip()
-        data = json.loads(text)
-        score = int(data.get("score", 0))
-        verdict = str(data.get("verdict", ""))
-        
-        # Determine string label based on numeric score
-        if score >= 75:
-            label = "VERIFIED"
-        elif score >= 40:
-            label = "PARTIAL"
-        else:
-            label = "REJECTED"
-
-        result = {"score": score, "verdict": verdict, "label": label}
-        if check_originality:
-            result["is_original"] = bool(data.get("is_original", False))
-
-        return result
-        
-    except Exception as e:
-        print(f"ACTUAL ERROR: {e}")
-        return {"score": 0, "verdict": "An error occurred during verification.", "label": "REJECTED"}
-
-if __name__ == "__main__":
-    print("Test 1: Unrelated image (Dice vs building a school)")
-    print(verify_image(
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png",
-        "building a school in rural area"
-    ))
-    
-    print("\nTest 2: Stock photo of a classroom (Might get labeled PARTIAL or REJECTED for stock look)")
-    print(verify_image(
-        "https://images.unsplash.com/photo-1524178232363-1fb2b075b655",
-        "authentic poor rural school in a developing area"
-    ))
-
-    print("\nTest 3: Realistic scene (Another Unsplash photo, testing 'modern classroom' desc)")
-    print(verify_image(
-        "https://images.unsplash.com/photo-1509062522246-3755977927d7",
-        "students taking notes inside a modern classroom setting"
-    ))
+    return {"score":score,"verdict":verdict,"labels":labels,"flags":flags,"web_matches":web_count}

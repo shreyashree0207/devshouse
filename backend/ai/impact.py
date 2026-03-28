@@ -1,46 +1,16 @@
-# TODO: Install the required pip packages before running this code:
-# pip install google-genai
+# backend/ai/impact.py
+import anthropic, os
 
-# Ensure you have installed python-dotenv: pip install python-dotenv
-import os
-from pathlib import Path
-from dotenv import load_dotenv
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-# Load environment variables from the .env file in the backend directory
-env_path = Path(__file__).resolve().parent.parent / ".env"
-print(f"DEBUG: Looking for .env file at {env_path}")
-load_dotenv(env_path)
-
-from google import genai
-
-def get_impact_message(amount: float, category: str) -> str:
-    """
-    Calls the Google Gemini API to generate a one-sentence impact message
-    based on the donation amount and category.
-    """
-    # TODO: Ensure that the 'GEMINI_API_KEY' environment variable is correctly set in your environment.
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        # Fallback message if API key isn't provided
-        return "Thank you for your generous donation!"
-
-    client = genai.Client(api_key=api_key)
-
-    prompt = (
-        f"A donation of {amount} has been made to the '{category}' category. "
-        "Respond with EXACTLY ONE single sentence describing the real-world impact of this donation. "
-        "Do not include any extra text, greetings, introductory phrases, or quotation marks. "
-        "For example, if amount is 500 and category is 'education', respond with "
-        "something like 'Your ₹500 will provide textbooks for 3 children in a rural school for one month.'"
+def predict_impact(amount: int, category: str, ngo_name: str) -> str:
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=60,
+        messages=[{"role": "user", "content":
+            f"NGO '{ngo_name}' focused on {category} receives ₹{amount}. "
+            f"Write ONE sentence (max 15 words) on what this achieves. "
+            f"Be specific: use real units like meals, children, books, days. No filler words."
+        }]
     )
-
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        return response.text.strip()
-    except Exception as e:
-        print(f"ACTUAL ERROR: {e}")
-        return "Thank you for your generous donation!"
-print(get_impact_message(500, "education"))
+    return msg.content[0].text.strip()

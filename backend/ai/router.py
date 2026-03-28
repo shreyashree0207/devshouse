@@ -1,27 +1,43 @@
+# backend/ai/router.py
 from fastapi import APIRouter
 from pydantic import BaseModel
+from .verify import verify_image
+from .impact import predict_impact
+from .transparency import compute_score
 
-ai_router = APIRouter()
+router = APIRouter()
 
 class VerifyRequest(BaseModel):
     image_url: str
     project_description: str
 
 class ImpactRequest(BaseModel):
-    amount: float
+    amount: int
     category: str
+    ngo_name: str
 
-@ai_router.post("/verify")
-def verify(body: VerifyRequest):
-    # FAKE DATA first — real ML implementation comes later
-    return {
-        "score": 88, 
-        "verdict": f"Image appears consistent with '{body.project_description}'"
-    }
+class ScoreRequest(BaseModel):
+    milestones_done: int
+    milestones_total: int
+    verified_proofs: int
+    total_updates: int
+    returning_donors: int
+    total_donors: int
 
-@ai_router.post("/impact")
-def impact(body: ImpactRequest):
-    # FAKE DATA first
-    return {
-        "message": f"Your ₹{body.amount} contribution provides essential resources for {body.category}."
-    }
+@router.post("/verify")
+def verify(req: VerifyRequest):
+    return verify_image(req.image_url, req.project_description)
+
+@router.post("/impact")
+def impact(req: ImpactRequest):
+    text = predict_impact(req.amount, req.category, req.ngo_name)
+    return {"message": text}
+
+@router.post("/score")
+def score(req: ScoreRequest):
+    s = compute_score(
+        req.milestones_done, req.milestones_total,
+        req.verified_proofs, req.total_updates,
+        req.returning_donors, req.total_donors
+    )
+    return {"score": s}

@@ -46,9 +46,18 @@ class _QueryBuilder:
         self._eqs.append(("limit", str(count)))
         return self
 
-    def insert(self, data):
-        self._action = 'insert'
+    def update(self, data):
+        self._action = 'update'
         self._data = data
+        return self
+
+    def upsert(self, data):
+        self._action = 'upsert'
+        self._data = data
+        return self
+
+    def delete(self):
+        self._action = 'delete'
         return self
 
     def execute(self):
@@ -59,10 +68,9 @@ class _QueryBuilder:
         }
         
         if self._action == 'select':
-            params = [("select", self._select_cols)] + self._eqs
+            params = [("select", self._select_cols)] + [(k, v) for k, v in self._eqs]
             query_string = urllib.parse.urlencode(params)
-            if query_string:
-                url += "?" + query_string
+            url += "?" + query_string
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req) as response:
                 return _Response(json.loads(response.read().decode()))
@@ -74,6 +82,33 @@ class _QueryBuilder:
             req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
             with urllib.request.urlopen(req) as response:
                 return _Response(json.loads(response.read().decode()))
+
+        elif self._action == 'update':
+            headers["Content-Type"] = "application/json"
+            headers["Prefer"] = "return=representation"
+            query_string = urllib.parse.urlencode(self._eqs)
+            url += "?" + query_string
+            data_bytes = json.dumps(self._data).encode("utf-8")
+            req = urllib.request.Request(url, data=data_bytes, headers=headers, method="PATCH")
+            with urllib.request.urlopen(req) as response:
+                return _Response(json.loads(response.read().decode()))
+        
+        elif self._action == 'upsert':
+            headers["Content-Type"] = "application/json"
+            headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+            data_bytes = json.dumps(self._data).encode("utf-8")
+            req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
+            with urllib.request.urlopen(req) as response:
+                return _Response(json.loads(response.read().decode()))
+                
+        elif self._action == 'delete':
+            query_string = urllib.parse.urlencode(self._eqs)
+            url += "?" + query_string
+            req = urllib.request.Request(url, headers=headers, method="DELETE")
+            with urllib.request.urlopen(req) as response:
+                # Delete may not return body
+                resp_data = response.read().decode()
+                return _Response(json.loads(resp_data) if resp_data else [])
 
 class _SupabaseClient:
     def table(self, table_name):

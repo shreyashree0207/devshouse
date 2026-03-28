@@ -4,7 +4,8 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
-router = APIRouter()
+router = APIRouter(prefix="/ngos", tags=["NGOs"])
+
 
 # ── existing endpoints (keep these) ────────────────────────
 
@@ -147,18 +148,63 @@ def register_ngo(body: NGORegisterRequest):
 
 # ── Wildcard route: MUST come after all static GET routes ──
 
+# DEMO MAPPING for Hackathon demo consistency
+DEMO_MAP = {
+  'shiksha-foundation': 'MH/2018/0187432',
+  'pragati-path': 'DL/2019/0234521',
+  'annamayya-trust': 'TN/2017/0156789',
+  'nourish-the-nation': 'KA/2020/0298341',
+  'aarogya-health-mission': 'MH/2016/0123456',
+  'vriksh-protectors': 'DL/2021/0345678',
+}
+
 @router.get("/{ngo_id}")
 def get_ngo(ngo_id: str):
-    result = supabase.table("ngos").select("*").eq("id", ngo_id).single().execute()
-    if not result.data:
+    # 1. Try slug mapping first (High priority for Demo)
+    result_data = []
+    if ngo_id in DEMO_MAP:
+        darpan_id = DEMO_MAP[ngo_id]
+        res = supabase.table("ngos").select("*").eq("darpan_id", darpan_id).execute()
+        result_data = res.data or []
+        
+    # 2. Try ID (UUID) only if it looks like a valid UUID string
+    if not result_data and len(ngo_id) > 20: 
+        try:
+            res = supabase.table("ngos").select("*").eq("id", ngo_id).execute()
+            result_data = res.data or []
+        except:
+            # Not a valid UUID or other DB error - ignore and try next
+            pass
+            
+    # 3. Try Darpan ID directly
+    if not result_data:
+        res = supabase.table("ngos").select("*").eq("darpan_id", ngo_id.upper()).execute()
+        result_data = res.data or []
+    
+    # 4. Try searching by name (slug match) - for demo flexibility
+    if not result_data:
+        name_guess = ngo_id.replace('-', ' ')
+        res = supabase.table("ngos").select("*").ilike("name", f"%{name_guess}%").execute()
+        result_data = res.data or []
+
+    if not result_data:
         raise HTTPException(status_code=404, detail="NGO not found")
-    milestones = supabase.table("milestones").select("*").eq("ngo_id", ngo_id).execute()
-    proofs = supabase.table("proof_updates").select("*").eq("ngo_id", ngo_id).execute()
+        
+    ngo = result_data[0]
+
+    ngo_id_real = ngo["id"]
+    
+    milestones = supabase.table("milestones").select("*").eq("ngo_id", ngo_id_real).execute()
+    proofs = supabase.table("ngo_updates").select("*").eq("ngo_id", ngo_id_real).execute()
+    
     return {
-        **result.data,
+        **ngo,
         "milestones": milestones.data,
-        "proof_updates": proofs.data
+        "proof_updates": proofs.data,
+        "updates": proofs.data  # Added for double-safe demo compatibility
     }
+
+
 
 # ── NEW ENDPOINT 4: Submit Complaint ──────────────────────
 
