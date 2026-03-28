@@ -15,6 +15,7 @@ function NGODiscoveryContent() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [sortBy, setSortBy] = useState("Newest");
+  const [showNewNGOs, setShowNewNGOs] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -30,6 +31,9 @@ function NGODiscoveryContent() {
 
   useEffect(() => {
     let result = [...ngos];
+    if (!showNewNGOs) {
+      result = result.filter(n => n.transparency_score > 40);
+    }
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       result = result.filter(n => n.name?.toLowerCase().includes(q) || n.city?.toLowerCase().includes(q) || n.district?.toLowerCase().includes(q));
@@ -68,6 +72,18 @@ function NGODiscoveryContent() {
               placeholder="Search NGOs, cities, districts..."
               className="w-full bg-white/[0.03] text-white pl-12 pr-4 py-3.5 rounded-2xl border border-white/[0.08] outline-none focus:border-[#00ff88]/30 transition-all text-sm" />
           </div>
+          
+          <label className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.08] rounded-2xl px-4 py-2 cursor-pointer group hover:border-[#00ff88]/30 transition-all">
+            <div className="flex flex-col">
+               <span className="text-xs font-bold text-white">Support New NGOs</span>
+               <span className="text-[9px] text-gray-500 uppercase tracking-widest leading-none mt-1">Show unverified incubators</span>
+            </div>
+            <div className={`w-10 h-5 rounded-full transition-colors relative ${showNewNGOs ? 'bg-[#00ff88]' : 'bg-gray-800'}`}>
+               <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow-sm ${showNewNGOs ? 'left-[22px]' : 'left-0.5'}`} />
+            </div>
+            <input type="checkbox" className="hidden" checked={showNewNGOs} onChange={e => setShowNewNGOs(e.target.checked)} />
+          </label>
+
           <div className="flex items-center gap-2 bg-white/[0.03] border border-white/[0.08] rounded-2xl px-3 py-2">
             <SlidersHorizontal size={14} className="text-gray-500" />
             <select value={sortBy} onChange={e => setSortBy(e.target.value)}

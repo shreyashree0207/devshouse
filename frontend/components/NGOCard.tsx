@@ -43,6 +43,10 @@ export default function NGOCard({ ngo, index = 0 }: { ngo: NGO; index?: number }
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
             {score}
           </div>
+          {/* Status badge */}
+          <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full backdrop-blur-md text-[9px] font-bold flex items-center gap-1 bg-black/60 shadow-lg text-white border border-white/10">
+            {score > 75 ? '🟢 Verified' : score >= 40 ? '🟡 Under Review' : '🔴 Suspended'}
+          </div>
           {/* Category */}
           <div className="absolute bottom-3 left-3">
             <span className={`text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border ${catColors[ngo.category || ''] || 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>

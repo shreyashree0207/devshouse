@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "../components/Navbar";
+import { Toaster } from "react-hot-toast";
 
 export const metadata: Metadata = {
   title: "Sustainify | Radical Transparency for Social Impact",
@@ -20,6 +21,7 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap" rel="stylesheet" />
       </head>
       <body className="antialiased bg-[#0a0f0a] text-[#f8fafc] font-jakarta">
+        <Toaster position="bottom-right" toastOptions={{ style: { background: '#161b22', color: '#fff', border: '1px solid #1f2937' } }} />
         {/* Animated Neon Background */}
         <div className="neon-bg">
           <div className="neon-blob neon-blob-1" />

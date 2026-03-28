@@ -11,7 +11,7 @@ from google.genai import types
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(env_path)
 
-def verify_image(image_url: str, project_description: str) -> dict:
+def verify_image(image_url: str, project_description: str, check_originality: bool = False) -> dict:
     """
     Calls the Google Gemini API to verify if an image matches the project description.
     Also checks for signs of image manipulation or stock reuse, and outputs an appropriate label.
@@ -29,9 +29,18 @@ def verify_image(image_url: str, project_description: str) -> dict:
         f"Does this image show activity consistent with this project description: '{project_description}'? "
         "Also check for signs of image manipulation or reuse (like stock photos), and factor that into the score. "
         "Give a score out of 100 where 0 is completely unrelated/fake and 100 is perfectly matching/authentic. "
-        'Respond in exactly this JSON format: {"score": 85, "verdict": "one sentence here"}. '
-        'No extra text.'
     )
+    
+    if check_originality:
+        prompt += (
+            "Assess whether the image looks like a stock photo, professionally staged photo, or image that could be found "
+            "on the internet rather than a genuine field photo taken by the NGO. "
+            'Respond in exactly this JSON format: {"score": 85, "verdict": "one sentence here", "is_original": true}. '
+        )
+    else:
+        prompt += 'Respond in exactly this JSON format: {"score": 85, "verdict": "one sentence here"}. '
+        
+    prompt += 'No extra text.'
 
     try:
         # Fetch the image to pass as bytes to Gemini
@@ -60,7 +69,11 @@ def verify_image(image_url: str, project_description: str) -> dict:
         else:
             label = "REJECTED"
 
-        return {"score": score, "verdict": verdict, "label": label}
+        result = {"score": score, "verdict": verdict, "label": label}
+        if check_originality:
+            result["is_original"] = bool(data.get("is_original", False))
+
+        return result
         
     except Exception as e:
         print(f"ACTUAL ERROR: {e}")

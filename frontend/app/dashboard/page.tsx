@@ -155,6 +155,35 @@ export default function DonorDashboard() {
                   </div>
                 )}
               </div>
+
+              {/* Complaints Tracker */}
+              <div className="space-y-4 mt-12">
+                <h3 className="text-lg font-bold text-white">Complaint Tracker</h3>
+                <div className="flex items-center justify-between p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-red-500/10 rounded-full flex items-center justify-center">
+                      <Shield size={16} className="text-red-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white">Global Health Network</p>
+                      <p className="text-[10px] text-gray-500">Reported for: Misuse of funds • Oct 02, 2025</p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 bg-red-500/10 text-red-500 text-[10px] font-black uppercase tracking-widest rounded-full border border-red-500/20">Under Review</span>
+                </div>
+                <div className="flex items-center justify-between p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-blue-500/10 rounded-full flex items-center justify-center">
+                      <Shield size={16} className="text-blue-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white">Unity Educational Trust</p>
+                      <p className="text-[10px] text-gray-500">Reported for: Fake proofs • Aug 14, 2025</p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 bg-blue-500/10 text-blue-500 text-[10px] font-black uppercase tracking-widest rounded-full border border-blue-500/20">Escalated to Government</span>
+                </div>
+              </div>
             </motion.div>
           )}
 

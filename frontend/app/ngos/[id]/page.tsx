@@ -16,6 +16,7 @@ import MilestoneTimeline from '../../../components/MilestoneTimeline';
 import ProofCard from '../../../components/ProofCard';
 import DonationModal from '../../../components/DonationModal';
 import { apiRequest } from '../../../lib/api';
+import ProofUploader from '../../../components/ProofUploader';
 
 export default function NGODetail({ params: paramsPromise }: { params: Promise<{ id: string }> }) {
   const params = use(paramsPromise);
@@ -32,6 +33,13 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
   const [activities, setActivities] = useState<any[]>([]);
   const [impactMessage, setImpactMessage] = useState("");
   const [donationError, setDonationError] = useState<string | null>(null);
+  
+  // Complaint State
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportCategory, setReportCategory] = useState("");
+  const [reportDescription, setReportDescription] = useState("");
+  const [reportEvidence, setReportEvidence] = useState("");
+  const [reportSubmitted, setReportSubmitted] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -98,9 +106,22 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
   if (!ngo) return <div className="min-h-screen pt-40 text-center text-white text-3xl font-black font-jakarta">NGO Profile Not Found! ⚠</div>;
 
   const progress = Math.min(100, ((ngo.raised_amount || 0) / (ngo.goal_amount || 1)) * 100);
+  const isSuspended = ngo.transparency_score < 40;
+  const isUnderReview = ngo.transparency_score < 40 || ngo.flagged_count >= 3;
 
   return (
     <div className="min-h-screen bg-[#0d1117] relative">
+      
+      {isSuspended && (
+        <div className="w-full bg-red-600 text-white text-center py-3 font-black uppercase tracking-widest text-xs z-50 relative sticky top-0 shadow-2xl">
+          SUSPENDED: This NGO has been suspended. Your unspent funds have been returned to your wallet.
+        </div>
+      )}
+      {!isSuspended && isUnderReview && (
+        <div className="w-full bg-orange-500 text-white text-center py-3 font-black uppercase tracking-widest text-xs z-50 relative sticky top-0 shadow-lg">
+          UNDER REVIEW: Transparency score below 40 or multiple flags detected.
+        </div>
+      )}
       <div className="absolute top-0 left-0 w-full h-[60vh] bg-gradient-to-b from-[#161b22] to-transparent pointer-events-none opacity-50" />
       
       {/* Header / Cover Section */}
@@ -118,6 +139,8 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
             <div className="absolute bottom-6 left-6 flex gap-3">
                 <span className="px-5 py-1.5 bg-[#16a34a] text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl border border-white/20">{ngo.category}</span>
                 {ngo.verified && <span className="px-5 py-1.5 bg-black/80 backdrop-blur-md text-[#16a34a] border border-[#16a34a]/50 rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 animate-pulse"><Zap size={10} className="fill-[#16a34a]" /> Verified Trust Index</span>}
+                <span className="px-5 py-1.5 bg-gradient-to-r from-blue-600/80 to-[#16a34a]/80 backdrop-blur-md text-white border border-blue-500/50 rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2">DARPAN Verified ✓</span>
+                <span className="px-5 py-1.5 bg-gradient-to-r from-purple-600/80 to-[#16a34a]/80 backdrop-blur-md text-white border border-purple-500/50 rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2">80G Eligible ✓</span>
                 {ngo.status === 'gov_funded' && (
                   <span className="px-5 py-1.5 bg-gradient-to-r from-yellow-600/80 to-[#16a34a]/80 backdrop-blur-md text-white border border-yellow-500/50 rounded-full text-[10px] font-black uppercase tracking-widest shadow-[0_0_20px_rgba(234,179,8,0.3)] flex items-center gap-2">
                     <Award size={10} className="text-yellow-400" /> Gov Authenticated & Funded
@@ -179,7 +202,7 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
           {/* Left Column: TABS & CONTENT */}
           <div className="lg:w-[65%] order-2 lg:order-1">
             <div className="flex gap-10 mb-16 border-b border-gray-800 sticky top-24 bg-[#0d1117] z-30 py-4 shadow-sm overflow-x-auto scrollbar-hide">
-              {['Overview', 'Activities', 'Milestones', 'Proof Updates', 'Our Impact'].map(tab => (
+              {['Overview', 'Activities', 'Milestones', 'Proof Updates', 'Ask the NGO', 'Our Impact'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -302,7 +325,33 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
                           </div>
                        </div>
                     </div>
-                    <MilestoneTimeline milestones={milestones} />
+                    
+                    <div className="mb-12 border-l-4 border-[#16a34a] pl-4">
+                        <h3 className="text-3xl font-extrabold font-jakarta tracking-tight">Fund Release Timeline (Escrow)</h3>
+                        <p className="text-gray-500 font-medium italic">Track how every rupee is allocated remotely safely.</p>
+                    </div>
+                    <div className="space-y-4">
+                      {[1, 2, 3].map((m, i) => (
+                        <div key={i} className="flex flex-col md:flex-row items-center justify-between p-6 bg-[#161b22] border border-gray-800 rounded-2xl group hover:border-gray-700 transition-colors">
+                           <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
+                              <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center font-black text-gray-500">{i+1}</div>
+                              <div>
+                                 <p className="font-bold text-lg">Milestone {i+1}</p>
+                                 {i === 0 ? <p className="text-xs font-bold uppercase tracking-widest mt-1 w-fit bg-[#16a34a]/10 text-[#16a34a] px-2 py-0.5 rounded-full border border-[#16a34a]/20 flex items-center gap-1">RELEASED ✓</p> : <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1 w-fit bg-red-500/10 text-red-400 px-2 py-0.5 rounded-full border border-red-500/20 flex items-center gap-1">LOCKED <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse"/></p>}
+                              </div>
+                           </div>
+                           <div className="flex items-center justify-between w-full md:w-auto md:gap-10">
+                              <div className="text-right">
+                                 <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1">Held in Escrow</p>
+                                 <p className="text-xl font-black text-white">₹25,000</p>
+                              </div>
+                              <button className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all">Submit Proof</button>
+                           </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 font-bold text-center mt-6">Funds are held securely until each milestone is verified by Sustainify AI.</p>
+
                   </motion.div>
                 )}
 
@@ -316,6 +365,9 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
                   >
                     <div className="mb-8 space-y-4">
                        <h3 className="text-3xl font-extrabold font-jakarta text-white tracking-tight">Verified Proof Feed</h3>
+                    </div>
+                    <ProofUploader ngoId={ngo.id} projectId={ngo.id} />
+                    <div className="mb-8">
                        <p className="text-gray-500 font-medium italic">Live updates from the field, geo-tagged and AI-verified for authenticity.</p>
                     </div>
                     {proofs.length > 0 ? (
@@ -451,7 +503,7 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
                      <div className="flex justify-between items-center ml-1">
                         <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Donor Recognition</p>
                         <label className="flex items-center gap-2 cursor-pointer group/toggle">
-                           <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest group-hover/toggle:text-white transition-colors">Go Anonymous</span>
+                           <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest group-hover/toggle:text-white transition-colors cursor-help" title="Your identity is protected. Only Sustainify's secure system knows your identity for receipt generation.">Go Anonymous</span>
                            <div 
                               onClick={() => setIsAnonymous(!isAnonymous)}
                               className={`w-8 h-4 rounded-full transition-all duration-300 relative ${isAnonymous ? 'bg-[#16a34a]' : 'bg-gray-800'}`}
@@ -518,6 +570,9 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
                      <p className="text-[9px] text-gray-500 font-bold uppercase leading-relaxed px-6">
                        100% of your donation reaches the cause. Sustainify operates on a zero-platform-fee model supported by philanthropic grants.
                      </p>
+                     <button onClick={() => setIsReportModalOpen(true)} className="mt-2 text-[9px] text-gray-600 hover:text-red-400 font-bold uppercase tracking-widest underline transition-colors w-fit mx-auto cursor-pointer">
+                        Report this NGO
+                     </button>
                   </div>
                 </div>
               </motion.div>
@@ -525,6 +580,67 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
           </div>
         </div>
       </section>
+
+      {/* Report Modal */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !reportSubmitted && setIsReportModalOpen(false)} />
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="relative w-full max-w-lg bg-[#161b22] border border-gray-800 rounded-2xl p-8 shadow-2xl z-10">
+             {!reportSubmitted ? (
+               <>
+                  <h3 className="text-2xl font-black text-white mb-2">Report NGO</h3>
+                  <p className="text-gray-500 text-xs font-bold uppercase tracking-widest mb-6">File a community complaint</p>
+                  
+                  <div className="space-y-4">
+                     <div>
+                        <label className="text-xs text-gray-500 font-bold mb-2 block uppercase tracking-widest">Complaint Category</label>
+                        <select onChange={(e) => setReportCategory(e.target.value)} value={reportCategory} className="w-full bg-black/40 border border-gray-800 rounded-xl p-3 text-white outline-none focus:border-red-500 appearance-none text-sm">
+                           <option value="" disabled>Select a reason...</option>
+                           <option value="Misuse of funds">Misuse of funds</option>
+                           <option value="Fake proof images">Fake proof images</option>
+                           <option value="Milestone not completed">Milestone not completed</option>
+                           <option value="Unresponsive to donors">Unresponsive to donors</option>
+                           <option value="Other">Other</option>
+                        </select>
+                     </div>
+                     <div>
+                        <label className="text-xs text-gray-500 font-bold mb-2 block uppercase tracking-widest">Description</label>
+                        <textarea onChange={(e) => setReportDescription(e.target.value)} value={reportDescription} className="w-full bg-black/40 border border-gray-800 rounded-xl p-3 text-white outline-none focus:border-red-500 text-sm min-h-[100px] resize-none" placeholder="Provide details (min 50 chars)..."></textarea>
+                     </div>
+                     <div>
+                        <label className="text-xs text-gray-500 font-bold mb-2 block uppercase tracking-widest">Evidence URL (Optional)</label>
+                        <input type="text" onChange={(e) => setReportEvidence(e.target.value)} value={reportEvidence} className="w-full bg-black/40 border border-gray-800 rounded-xl p-3 text-white outline-none focus:border-red-500 text-sm" placeholder="https://" />
+                     </div>
+                  </div>
+                  
+                  <div className="flex gap-4 mt-8">
+                     <button onClick={() => setIsReportModalOpen(false)} className="flex-1 py-3 text-gray-400 hover:text-white font-bold text-sm transition-colors border border-gray-800 rounded-xl">Cancel</button>
+                     <button disabled={!reportCategory || reportDescription.length < 50} onClick={() => setReportSubmitted(true)} className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition-colors disabled:opacity-50">Submit Report</button>
+                  </div>
+               </>
+             ) : (
+               <div className="text-center py-6">
+                  <AlertTriangle className="text-red-500 mx-auto mb-4" size={48} />
+                  <h3 className="text-xl font-black text-white mb-2">Report Submitted</h3>
+                  <p className="text-gray-400 text-sm mb-8">We take community flags seriously. What would you like to do next?</p>
+                  
+                  <div className="space-y-4">
+                     <button onClick={() => { setIsReportModalOpen(false); setReportSubmitted(false); }} className="w-full py-3 bg-[#16a34a]/10 text-[#16a34a] border border-[#16a34a]/20 rounded-xl font-bold text-sm transition-colors hover:bg-[#16a34a]/20">
+                        Submit to Sustainify only
+                     </button>
+                     <button onClick={() => { 
+                        const note = encodeURIComponent(`I am filing a complaint regarding ${ngo.name} (DARPAN ID: ${ngo.id}) via Sustainify platform. Details: ${reportDescription}`);
+                        window.open(`https://darpan.gov.in?prefill_note=${note}`, '_blank');
+                        setIsReportModalOpen(false); setReportSubmitted(false);
+                     }} className="w-full py-3 bg-red-600/10 text-red-500 border border-red-500/20 rounded-xl font-bold text-sm transition-colors hover:bg-red-600/20">
+                        Also escalate to Government
+                     </button>
+                  </div>
+               </div>
+             )}
+          </motion.div>
+        </div>
+      )}
 
       <DonationModal 
         isOpen={isModalOpen}

@@ -1,0 +1,1 @@
+{"root_dirs": ["components", "app", "public", "lib"], "root_files": ["next.config.mjs", "package.json", "eslint.config.mjs", "README.md", "jsconfig.json", ".gitignore", "package-lock.json", "tsconfig.json", "postcss.config.mjs"]}

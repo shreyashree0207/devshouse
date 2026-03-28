@@ -32,6 +32,7 @@ const SDG_GOALS = [
 
 export default function Home() {
   const [featuredNgos, setFeaturedNgos] = useState<any[]>([]);
+  const [topRankedNgos, setTopRankedNgos] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchFeatured = async () => {
@@ -41,7 +42,16 @@ export default function Home() {
         .limit(3);
       if (data) setFeaturedNgos(data);
     };
+    const fetchTopRanked = async () => {
+      const { data } = await supabase
+        .from('ngos')
+        .select('*')
+        .order('transparency_score', { ascending: false })
+        .limit(3);
+      if (data) setTopRankedNgos(data);
+    };
     fetchFeatured();
+    fetchTopRanked();
   }, []);
 
   return (
@@ -226,6 +236,46 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Top Ranked NGOs Section */}
+      <section className="py-20 px-4 md:px-8 bg-[#0d1117] relative z-10 border-t border-gray-800">
+        <div className="max-w-7xl mx-auto mb-12 flex flex-col items-center text-center">
+            <span className="px-4 py-1.5 bg-yellow-500/10 text-yellow-500 text-[10px] font-black uppercase tracking-widest rounded-full mb-4 border border-yellow-500/20">Most Trusted This Month</span>
+            <h2 className="text-4xl md:text-5xl font-extrabold font-jakarta text-white tracking-tight">
+              Top Ranked <span className="text-[#16a34a]">NGOs</span>
+            </h2>
+        </div>
+        
+        <div className="max-w-7xl mx-auto flex overflow-x-auto gap-8 pb-8 snap-x snap-mandatory scrollbar-hide">
+          {topRankedNgos.length > 0 ? (
+             topRankedNgos.map((ngo, index) => (
+               <div key={ngo.id} className="min-w-[350px] md:min-w-[400px] snap-center card p-8 bg-gradient-to-br from-[#161b22] to-black border-2 border-yellow-500/20 shadow-2xl rounded-[2.5rem] flex flex-col items-center text-center relative overflow-hidden group hover:border-yellow-500/50 transition-all">
+                  <div className="absolute top-0 right-0 p-4">
+                     <Award className={index === 0 ? "text-yellow-400" : index === 1 ? "text-gray-300" : "text-amber-600"} size={40} />
+                  </div>
+                  <div className="w-20 h-20 rounded-full border-4 border-yellow-500/30 overflow-hidden mb-6 mt-4">
+                     <img src={ngo.cover_image || 'https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?w=800&auto=format'} alt={ngo.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                  </div>
+                  <h3 className="text-2xl font-black text-white mb-2">{ngo.name}</h3>
+                  <div className="flex items-center gap-2 mb-6">
+                     <span className="px-3 py-1 bg-yellow-500/10 text-yellow-500 text-[10px] font-black uppercase tracking-widest rounded-full border border-yellow-500/20 group-hover:bg-yellow-500/20 transition-colors">🏆 Top Verified</span>
+                  </div>
+                  <div className="flex items-end gap-2 mb-8">
+                     <span className="text-6xl font-black font-jakarta text-[#16a34a] leading-none">{ngo.transparency_score || 0}</span>
+                     <span className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Score</span>
+                  </div>
+                  <Link href={`/ngos/${ngo.id}`} className="w-full py-4 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 text-sm font-black uppercase tracking-widest rounded-xl transition-colors border border-yellow-500/20">
+                     Donate Now
+                  </Link>
+               </div>
+             ))
+          ) : (
+            [...Array(3)].map((_, i) => (
+              <div key={i} className="min-w-[350px] md:min-w-[400px] h-96 bg-[#161b22] border border-gray-800 animate-pulse rounded-[2.5rem]" />
+            ))
+          )}
+        </div>
+      </section>
+
       {/* Featured NGOs Section */}
       <section className="py-32 px-4 md:px-8 bg-black">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-end mb-16 px-4">
@@ -293,7 +343,7 @@ export default function Home() {
                 <p className="text-[10px] font-black uppercase tracking-widest text-[#16a34a]">Impact</p>
                 <div className="flex flex-col gap-4">
                   <Link href="/ngos" className="text-gray-400 hover:text-white text-sm font-bold transition-colors">Explore NGOs</Link>
-                  <Link href="/dashboard" className="text-gray-400 hover:text-white text-sm font-bold transition-colors">Transparency Registry</Link>
+                  <Link href="/transparency-log" className="text-gray-400 hover:text-white text-sm font-bold transition-colors">Platform Integrity Log</Link>
                   <Link href="/" className="text-gray-400 hover:text-white text-sm font-bold transition-colors">How it works</Link>
                 </div>
               </div>
