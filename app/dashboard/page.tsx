@@ -24,7 +24,10 @@ export default function DonorDashboard() {
       setUser(u);
 
       const [dRes, nRes] = await Promise.all([
-        supabase.from('donations').select('*, ngos(name, category, cover_image, city, transparency_score)').eq('user_id', u.id).order('created_at', { ascending: false }),
+        supabase.from('donations')
+          .select('*, ngos(name, category, cover_image, city, transparency_score), activities(id, title, status)')
+          .eq('user_id', u.id)
+          .order('created_at', { ascending: false }),
         supabase.from('ngos').select('*').eq('verified', true).order('created_at', { ascending: false }),
       ]);
       if (dRes.data) setDonations(dRes.data);
@@ -165,6 +168,19 @@ export default function DonorDashboard() {
                     <div className="flex items-center justify-between">
                       <h4 className="font-bold text-white">{d.ngos?.name || 'NGO'}</h4>
                       <span className="text-lg font-extrabold text-[#00ff88]">₹{(d.amount || 0).toLocaleString()}</span>
+                    </div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{d.activities?.title || 'General Fund'}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                       <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest ${
+                          d.released ? 'bg-[#00ff88]/10 text-[#00ff88] border border-[#00ff88]/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                       }`}>
+                          {d.released ? '✓ Funds Released' : '🔒 Held in Escrow'}
+                       </span>
+                       {d.released && d.activities?.id && (
+                          <Link href={`/activities/${d.activities.id}`} className="text-[8px] font-black text-blue-400 uppercase tracking-widest hover:underline">
+                             View Verified Proof →
+                          </Link>
+                       )}
                     </div>
                     <p className="text-xs text-gray-500">{d.ngos?.city} · {d.ngos?.category}</p>
                     <p className="text-xs text-gray-600">{new Date(d.created_at).toLocaleDateString()}</p>

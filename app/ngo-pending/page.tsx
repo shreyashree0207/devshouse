@@ -54,6 +54,12 @@ export default function NgoPendingPage() {
               ))}
             </div>
             <div className="flex flex-col gap-3 pt-4">
+              {/* DEVELOPMENT BYPASS: Allow immediate entry for testing */}
+              {darpanId && (
+                <Link href="/ngo-dashboard" className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-yellow-400 text-black font-black uppercase tracking-widest hover:scale-105 transition-all shadow-xl">
+                  🚀 Launch Dashboard (Test Mode)
+                </Link>
+              )}
               <Link href="/ngos" className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-white font-bold hover:border-[#00ff88]/30 transition-all">
                 <Search size={18} /> Browse NGOs as a Visitor
               </Link>

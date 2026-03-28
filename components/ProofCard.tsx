@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from 'framer-motion';
-import { ShieldCheck, MapPin, Calendar, CheckSquare, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, MapPin, Calendar, CheckSquare, AlertTriangle, Activity, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 interface ProofCardProps {
   proof: {
@@ -18,6 +18,9 @@ interface ProofCardProps {
     ai_verdict?: string;
     tags?: string[];
     authentic?: boolean;
+    reverse_image_passed?: boolean;
+    ai_generated_flag?: boolean;
+    community_upvotes?: number;
   };
 }
 
@@ -77,6 +80,24 @@ export default function ProofCard({ proof }: ProofCardProps) {
             </div>
           </div>
           
+          {/* Advanced Verification Badges */}
+          <div className="flex flex-wrap gap-2 mb-4">
+             <div className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border shadow-sm ${
+               proof.reverse_image_passed !== false 
+                 ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' 
+                 : 'bg-red-500/10 text-red-400 border-red-500/30'
+             }`}>
+                <ShieldCheck size={12} /> {proof.reverse_image_passed !== false ? 'Reverse Image Search: Clean' : 'Reverse Image: Duplicate Found'}
+             </div>
+             <div className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border shadow-sm ${
+               proof.ai_generated_flag 
+                 ? 'bg-orange-500/10 text-orange-400 border-orange-500/30' 
+                 : 'bg-[#16a34a]/10 text-[#16a34a] border-[#16a34a]/30'
+             }`}>
+                <Activity size={12} /> {proof.ai_generated_flag ? 'AI-Gen Check: Pattern Detected' : 'AI-Gen Check: Human'}
+             </div>
+          </div>
+          
           <div className="flex items-center gap-6 mb-4">
             <div className={`text-4xl font-extrabold tracking-tighter ${
               isAuthentic ? 'text-[#16a34a]' : 'text-red-400'
@@ -88,8 +109,19 @@ export default function ProofCard({ proof }: ProofCardProps) {
             </p>
           </div>
 
+          {/* Community Voting */}
+          <div className="flex items-center gap-4 pt-4 border-t border-gray-800/50 mt-4">
+             <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-800/50 hover:bg-gray-800 text-gray-400 hover:text-white transition-all text-[10px] font-bold">
+                <ThumbsUp size={14} /> {proof.community_upvotes || 0}
+             </button>
+             <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-800/50 hover:bg-gray-800 text-gray-400 hover:text-red-400 transition-all text-[10px] font-bold">
+                <ThumbsDown size={14} />
+             </button>
+             <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest ml-auto italic">Community Verified</span>
+          </div>
+
           {tags.length > 0 && (
-            <div className="flex flex-wrap gap-2 pt-2">
+            <div className="flex flex-wrap gap-2 pt-4">
               {tags.map((tag: string, i: number) => (
                 <span key={i} className="text-[9px] border border-gray-800 px-2.5 py-1 rounded-lg uppercase tracking-tight text-gray-400 font-bold hover:border-gray-700 transition-colors">
                   #{tag.toLowerCase()}
@@ -97,6 +129,7 @@ export default function ProofCard({ proof }: ProofCardProps) {
               ))}
             </div>
           )}
+
         </div>
       </div>
     </motion.div>

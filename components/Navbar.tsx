@@ -5,7 +5,9 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { getCurrentUser, signOut } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
-import { LogOut, Compass, Leaf, MapPin, Building2, Upload } from 'lucide-react';
+import { LogOut, Compass, Leaf, MapPin, Building2, Upload, Users } from 'lucide-react';
+
+import NotificationBell from './NotificationBell';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -41,26 +43,29 @@ export default function Navbar() {
 
           <div className="flex items-center gap-5">
             {/* No session or donor */}
-            {(!role || role === 'donor') && (
-              <>
-                <Link href="/ngos" className={lc('/ngos')}><Compass size={17} /> <span className="hidden sm:inline">Explore NGOs</span></Link>
-                <Link href="/map" className={lc('/map')}><MapPin size={17} /> <span className="hidden sm:inline">Map</span></Link>
-                {role === 'donor' && (
-                  <Link href="/dashboard" className={lc('/dashboard')}>Dashboard</Link>
-                )}
-              </>
-            )}
+             {(!role || role === 'donor') && (
+               <>
+                 <Link href="/ngos" className={lc('/ngos')}><Compass size={17} /> <span className="hidden sm:inline">Explore NGOs</span></Link>
+                 <Link href="/explore-map" className={lc('/explore-map')}><MapPin size={17} /> <span className="hidden sm:inline">Map</span></Link>
+                 <Link href="/community" className={lc('/community')}><Users size={17} /> <span className="hidden sm:inline">Feed</span></Link>
+                 {role === 'donor' && (
+                   <Link href="/dashboard" className={lc('/dashboard')}>Dashboard</Link>
+                 )}
+               </>
+             )}
 
             {/* NGO role */}
-            {role === 'ngo' && (
-              <>
-                <Link href="/ngo-dashboard" className={lc('/ngo-dashboard')}><Building2 size={17} /> My NGO</Link>
-                <Link href="/map" className={lc('/map')}><MapPin size={17} /> Map</Link>
-              </>
-            )}
+             {role === 'ngo' && (
+               <>
+                 <Link href="/ngo-dashboard" className={lc('/ngo-dashboard')}><Building2 size={17} /> My NGO</Link>
+                 <Link href="/explore-map" className={lc('/explore-map')}><MapPin size={17} /> Map</Link>
+                 <Link href="/community" className={lc('/community')}><Users size={17} /> Feed</Link>
+               </>
+             )}
 
             {user ? (
               <div className="flex items-center gap-3 pl-4 border-l border-white/10">
+                <NotificationBell />
                 <img src={user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.user_metadata?.full_name || 'U')}&background=00ff88&color=0a0f0a&bold=true`}
                   alt="" className="w-8 h-8 rounded-full border border-white/10" />
                 <button onClick={() => signOut()} className="p-2 text-gray-500 hover:text-red-400 transition-colors" title="Sign Out">

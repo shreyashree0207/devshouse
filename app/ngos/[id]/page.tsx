@@ -4,15 +4,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ShieldCheck, MapPin, Calendar, Heart, ArrowRight, CheckCircle2, 
   Users, Globe, TrendingUp, Info, Activity, Image as ImageIcon,
-  Zap, Clock, Award, Star, Share2, Compass, Loader2, Target
+  Zap, Clock, Award, Star, Share2, Compass, Loader2, Target, AlertTriangle,
+  ChevronRight
 } from 'lucide-react';
 import { useEffect, useState, use } from 'react';
+import Link from 'next/link';
 import { supabase, getCurrentUser } from '../../../lib/supabase';
 import { generateImpactMessage } from '../../../lib/gemini';
 import TransparencyRing from '../../../components/TransparencyRing';
 import MilestoneTimeline from '../../../components/MilestoneTimeline';
 import ProofCard from '../../../components/ProofCard';
 import DonationModal from '../../../components/DonationModal';
+import { apiRequest } from '../../../lib/api';
 
 export default function NGODetail({ params: paramsPromise }: { params: Promise<{ id: string }> }) {
   const params = use(paramsPromise);
@@ -25,20 +28,25 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
   const [donating, setDonating] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [donorName, setDonorName] = useState("");
+  const [isAnonymous, setIsAnonymous] = useState(false);
+  const [activities, setActivities] = useState<any[]>([]);
   const [impactMessage, setImpactMessage] = useState("");
+  const [donationError, setDonationError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const [ngoRes, msRes, prRes] = await Promise.all([
+      const [ngoRes, msRes, prRes, actRes] = await Promise.all([
         supabase.from('ngos').select('*').eq('id', params.id).single(),
         supabase.from('milestones').select('*').eq('ngo_id', params.id).order('target_date', { ascending: true }),
-        supabase.from('proof_updates').select('*').eq('ngo_id', params.id).order('created_at', { ascending: false })
+        supabase.from('proof_submissions').select('*').eq('ngo_id', params.id).order('created_at', { ascending: false }),
+        supabase.from('activities').select('*').eq('ngo_id', params.id).order('created_at', { ascending: false })
       ]);
 
       if (ngoRes.data) setNgo(ngoRes.data);
       if (msRes.data) setMilestones(msRes.data);
       if (prRes.data) setProofs(prRes.data);
+      if (actRes.data) setActivities(actRes.data);
       
       const user = await getCurrentUser();
       if (user) setDonorName(user.user_metadata?.full_name || "");
@@ -51,32 +59,28 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
   const handleDonate = async () => {
     if (!amount || amount <= 0) return;
     setDonating(true);
+    setDonationError(null);
     
     try {
-      const user = await getCurrentUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || null;
       
-      // 1. Insert donation
-      const { error: dError } = await supabase.from('donations').insert({
+      const response = await apiRequest('/donate', 'POST', {
         ngo_id: params.id,
-        donor_name: donorName || "Anonymous Donor",
-        amount: amount
-      });
+        name: isAnonymous ? "Anonymous" : (donorName || "Anonymous Donor"),
+        amount: amount,
+        is_anonymous: isAnonymous
+      }, token);
 
-      if (dError) throw dError;
-
-      // 2. Update local state for raised amount
-      // Note: In production, use a Supabase function for atomic update
-
-      // 3. Generate AI message
-      const msg = await generateImpactMessage(amount, ngo.category, ngo.name);
-      setImpactMessage(msg);
-      setIsModalOpen(true);
-      
-      // Update local state
-      setNgo({ ...ngo, raised_amount: (ngo.raised_amount || 0) + amount });
-    } catch (err) {
+      if (response.success) {
+        const msg = await generateImpactMessage(amount, ngo.category, ngo.name);
+        setImpactMessage(msg);
+        setIsModalOpen(true);
+        setNgo({ ...ngo, raised_amount: (ngo.raised_amount || 0) + amount });
+      }
+    } catch (err: any) {
       console.error('Donation failed:', err);
-      alert("Donation process encountered an error. Please try again.");
+      setDonationError(err.message || "Donation process encountered an error.");
     } finally {
       setDonating(false);
     }
@@ -112,9 +116,14 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60" />
             <div className="absolute bottom-6 left-6 flex gap-3">
-               <span className="px-5 py-1.5 bg-[#16a34a] text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl border border-white/20">{ngo.category}</span>
-               {ngo.verified && <span className="px-5 py-1.5 bg-black/80 backdrop-blur-md text-[#16a34a] border border-[#16a34a]/50 rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 animate-pulse"><Zap size={10} className="fill-[#16a34a]" /> Verified Trust Index</span>}
-            </div>
+                <span className="px-5 py-1.5 bg-[#16a34a] text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl border border-white/20">{ngo.category}</span>
+                {ngo.verified && <span className="px-5 py-1.5 bg-black/80 backdrop-blur-md text-[#16a34a] border border-[#16a34a]/50 rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2 animate-pulse"><Zap size={10} className="fill-[#16a34a]" /> Verified Trust Index</span>}
+                {ngo.status === 'gov_funded' && (
+                  <span className="px-5 py-1.5 bg-gradient-to-r from-yellow-600/80 to-[#16a34a]/80 backdrop-blur-md text-white border border-yellow-500/50 rounded-full text-[10px] font-black uppercase tracking-widest shadow-[0_0_20px_rgba(234,179,8,0.3)] flex items-center gap-2">
+                    <Award size={10} className="text-yellow-400" /> Gov Authenticated & Funded
+                  </span>
+                )}
+             </div>
           </div>
           
           <div className="flex-grow space-y-8">
@@ -170,7 +179,7 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
           {/* Left Column: TABS & CONTENT */}
           <div className="lg:w-[65%] order-2 lg:order-1">
             <div className="flex gap-10 mb-16 border-b border-gray-800 sticky top-24 bg-[#0d1117] z-30 py-4 shadow-sm overflow-x-auto scrollbar-hide">
-              {['Overview', 'Milestones', 'Proof Updates', 'Our Impact'].map(tab => (
+              {['Overview', 'Activities', 'Milestones', 'Proof Updates', 'Our Impact'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -239,6 +248,37 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
                       score={ngo.transparency_score} 
                       explanation={`Sustainify's Gemini engine has analyzed ${proofs.length} field certificates and ${milestones.length} fiscal reports to verify this institution. All operations meet the 'Proof-as-Truth' standard with verified geographic tagging.`} 
                     />
+                  </motion.div>
+                )}
+
+                {activeTab === 'Activities' && (
+                  <motion.div
+                    key="activities"
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    className="grid grid-cols-1 md:grid-cols-2 gap-8"
+                  >
+                    {activities.map(a => (
+                      <Link href={`/activities/${a.id}`} key={a.id} className="card p-8 bg-white/[0.03] border-white/10 rounded-[2.5rem] flex flex-col group hover:bg-[#16a34a]/5 transition-all">
+                        <div className="relative h-48 rounded-3xl overflow-hidden mb-6 border border-white/10 shadow-lg">
+                           <img src={a.before_image || 'https://via.placeholder.com/400'} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" />
+                           <div className="absolute top-4 right-4 px-3 py-1 bg-[#16a34a] text-white rounded-lg text-[8px] font-black uppercase tracking-widest">{a.status}</div>
+                        </div>
+                        <div className="flex-grow space-y-4">
+                           <h3 className="text-xl font-black">{a.title}</h3>
+                           <p className="text-sm text-gray-500 line-clamp-2">{a.description}</p>
+                           <div className="pt-4 border-t border-gray-800 flex justify-between items-end">
+                              <div>
+                                 <p className="text-[10px] text-gray-600 font-black uppercase tracking-widest">Raised</p>
+                                 <p className="text-lg font-black text-[#16a34a]">₹{a.raised_amount.toLocaleString()}</p>
+                              </div>
+                              <ChevronRight className="text-[#16a34a] group-hover:translate-x-1 transition-transform" />
+                           </div>
+                        </div>
+                      </Link>
+                    ))}
+                    {activities.length === 0 && <p className="text-center text-gray-600 py-20 col-span-2">No specific fundraising activities listed.</p>}
                   </motion.div>
                 )}
 
@@ -407,24 +447,69 @@ export default function NGODetail({ params: paramsPromise }: { params: Promise<{
                   </div>
 
                   {/* Donor Info */}
-                  <div className="space-y-3">
-                     <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black ml-1">Donor Recognition</p>
-                     <input 
-                       type="text" 
-                       placeholder="Enter your name" 
-                       value={donorName}
-                       onChange={(e) => setDonorName(e.target.value)}
-                       className="w-full bg-black/40 border border-gray-800 focus:border-[#16a34a/50] rounded-xl py-4 px-6 text-white font-medium text-sm outline-none transition-all shadow-inner"
-                     />
+                  <div className="space-y-4">
+                     <div className="flex justify-between items-center ml-1">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Donor Recognition</p>
+                        <label className="flex items-center gap-2 cursor-pointer group/toggle">
+                           <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest group-hover/toggle:text-white transition-colors">Go Anonymous</span>
+                           <div 
+                              onClick={() => setIsAnonymous(!isAnonymous)}
+                              className={`w-8 h-4 rounded-full transition-all duration-300 relative ${isAnonymous ? 'bg-[#16a34a]' : 'bg-gray-800'}`}
+                           >
+                              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all duration-300 ${isAnonymous ? 'left-4.5' : 'left-0.5'}`} />
+                           </div>
+                        </label>
+                     </div>
+                     {!isAnonymous && (
+                        <input 
+                           type="text" 
+                           placeholder="Enter your name" 
+                           value={donorName}
+                           onChange={(e) => setDonorName(e.target.value)}
+                           className="w-full bg-black/40 border border-gray-800 focus:border-[#16a34a/50] rounded-xl py-4 px-6 text-white font-medium text-sm outline-none transition-all shadow-inner"
+                        />
+                     )}
                   </div>
 
+                  {/* Escrow Policy Warning */}
+                  <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                     <p className="text-[10px] text-blue-400 font-bold leading-tight uppercase tracking-widest flex gap-2">
+                        <Info size={12} className="shrink-0" /> Milestone Escrow Policy
+                     </p>
+                     <p className="text-[9px] text-gray-400 font-medium mt-1 leading-relaxed">
+                        Funds are held in escrow and released only as milestones are verified. Refunds are automated if goals are not met.
+                     </p>
+                  </div>
+
+                  {/* Error State */}
+                  <AnimatePresence>
+                     {(donationError || ngo.transparency_score < 40) && (
+                        <motion.div 
+                           initial={{ opacity: 0, height: 0 }}
+                           animate={{ opacity: 1, height: 'auto' }}
+                           exit={{ opacity: 0, height: 0 }}
+                           className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 overflow-hidden"
+                        >
+                           <p className="text-[10px] text-red-400 font-black leading-tight uppercase tracking-widest flex gap-2">
+                              <AlertTriangle size={12} className="shrink-0" /> {ngo.transparency_score < 40 ? 'Transactions Paused' : 'Donation Error'}
+                           </p>
+                           <p className="text-[9px] text-gray-400 font-medium mt-1 leading-relaxed">
+                              {ngo.transparency_score < 40 
+                                ? 'This NGO’s transparency score is below 40. Donations are temporarily disabled for safety.' 
+                                : donationError}
+                           </p>
+                        </motion.div>
+                     )}
+                  </AnimatePresence>
+
                   <button 
-                    disabled={donating}
+                    disabled={donating || ngo.transparency_score < 40}
                     onClick={handleDonate}
-                    className="w-full btn-primary py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed group shadow-[0_15px_40px_rgba(22,163,94,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    className="w-full btn-primary py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed group shadow-[0_15px_40px_rgba(22,163,94,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all"
                   >
                     {donating ? <Loader2 className="animate-spin" /> : <><Heart size={24} className="group-hover:scale-110 group-hover:fill-current transition-transform duration-300" /> Donate Now</>}
                   </button>
+
 
                   <div className="flex flex-col gap-4 text-center pt-4 opacity-80">
                      <div className="flex items-center justify-center gap-2 text-[10px] font-black text-gray-600 uppercase tracking-widest">

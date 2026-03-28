@@ -21,7 +21,6 @@ function NGODiscoveryContent() {
       const { data } = await supabase
         .from('ngos')
         .select('*')
-        .eq('verified', true)
         .order('created_at', { ascending: false });
       if (data) { setNgos(data); setFilteredNgos(data); }
       setLoading(false);
