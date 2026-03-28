@@ -138,6 +138,119 @@ Red flags to detect:
   }
 }
 
+// ═══════════════════════════════════════════════
+// MULTI-LAYER VERIFICATION (calls backend /api/verify-image)
+// ═══════════════════════════════════════════════
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
+
+export async function verifyImageMultiLayer({
+  imageFile,
+  description,
+  ngoId,
+  ngoCity,
+  ngoState,
+  submittedLat,
+  submittedLng,
+  ngoLat,
+  ngoLng,
+}: {
+  imageFile: File;
+  description: string;
+  ngoId?: string;
+  ngoCity?: string;
+  ngoState?: string;
+  submittedLat?: number;
+  submittedLng?: number;
+  ngoLat?: number;
+  ngoLng?: number;
+}) {
+  try {
+    const formData = new FormData();
+    formData.append('file', imageFile);
+    formData.append('description', description);
+    if (ngoId) formData.append('ngo_id', ngoId);
+    formData.append('ngo_city', ngoCity || 'Tamil Nadu');
+    formData.append('ngo_state', ngoState || 'Tamil Nadu');
+    formData.append('submitted_lat', String(submittedLat || 0));
+    formData.append('submitted_lng', String(submittedLng || 0));
+    formData.append('ngo_lat', String(ngoLat || 0));
+    formData.append('ngo_lng', String(ngoLng || 0));
+
+    const res = await fetch(`${API_BASE}/ai/verify-file`, {
+      method: 'POST',
+      body: formData,
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('Multi-layer verification error:', error);
+    return null;
+  }
+}
+
+export async function verifyBeforeAfter({
+  beforeFile,
+  afterFile,
+  description,
+  ngoCity,
+}: {
+  beforeFile: File;
+  afterFile: File;
+  description: string;
+  ngoCity?: string;
+}) {
+  try {
+    const formData = new FormData();
+    formData.append('before_file', beforeFile);
+    formData.append('after_file', afterFile);
+    formData.append('description', description);
+    formData.append('ngo_city', ngoCity || '');
+
+    const res = await fetch(`${API_BASE}/ai/verify-before-after`, {
+      method: 'POST',
+      body: formData,
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('Before/after verification error:', error);
+    return null;
+  }
+}
+
+export async function castCrowdVote(proofId: string, voterId: string, vote: 'genuine' | 'fake') {
+  try {
+    const res = await fetch(`${API_BASE}/ai/crowd-vote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proof_id: proofId, voter_id: voterId, vote }),
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('Crowd vote error:', error);
+    return null;
+  }
+}
+
+export async function getNgoHealth(ngoId: string) {
+  try {
+    const res = await fetch(`${API_BASE}/ai/ngo-health/${ngoId}`);
+    return await res.json();
+  } catch (error) {
+    console.error('NGO health error:', error);
+    return null;
+  }
+}
+
+export async function getLiveTransparencyScore(ngoId: string) {
+  try {
+    const res = await fetch(`${API_BASE}/ai/transparency-score/${ngoId}`);
+    return await res.json();
+  } catch (error) {
+    console.error('Transparency score error:', error);
+    return null;
+  }
+}
+
 // Generate donor notification message after proof verified
 export async function generateProofNotification(donorName: string, amount: number, activityTitle: string, ngoName: string, trustScore: number) {
   try {

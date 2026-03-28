@@ -46,9 +46,9 @@ export default function ProofUploader({ ngoId, onVerified }) {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("ngo_id", ngoId);
-      formData.append("project_description", description);
+      formData.append("description", description);
       
-      const aiRes = await fetch(`${API}/ai/verify-upload`, {
+      const aiRes = await fetch(`${API}/api/v1/ai/verify-file`, {
         method: "POST",
         body: formData,
       });

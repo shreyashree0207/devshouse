@@ -178,24 +178,39 @@ export default function Home() {
           {[
             { step: '01', title: 'Discover', desc: 'Browse verified NGOs by cause and location with verified transparency logs.', icon: Globe },
             { step: '02', title: 'Donate', desc: 'Give securely via Supabase and track every rupee in real-time as it allocates.', icon: Heart },
-            { step: '03', title: 'Verify', desc: 'NGOs upload geo-tagged proof, and our Gemini AI confirms legitimacy instantly.', icon: ShieldCheck }
-          ].map((item, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.2 }}
-              className="card p-10 bg-gradient-to-br from-[#161b22] to-black/40 border-gray-800 hover:border-[#16a34a]/30 transition-all duration-300 relative group overflow-hidden"
-            >
-              <div className="absolute -top-4 -right-4 text-8xl font-black text-white/5 opacity-50 group-hover:text-[#16a34a]/10 transition-colors pointer-events-none uppercase tracking-tighter">
-                {item.step}
-              </div>
-              <item.icon className="text-[#16a34a] mb-8" size={40} />
-              <h3 className="text-2xl font-bold font-jakarta text-white mb-4 leading-none tracking-tight">{item.title}</h3>
-              <p className="text-gray-500 leading-relaxed font-medium">{item.desc}</p>
-            </motion.div>
-          ))}
+            { step: '03', title: 'Verify', desc: 'NGOs upload geo-tagged proof, and our Gemini AI confirms legitimacy instantly.', icon: ShieldCheck, link: '/verify-demo' }
+          ].map((item, i) => {
+            const CardContent = (
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.2 }}
+                className="card p-10 bg-gradient-to-br from-[#161b22] to-black/40 border-gray-800 hover:border-[#16a34a]/30 transition-all duration-300 relative group overflow-hidden h-full cursor-pointer"
+              >
+                <div className="absolute -top-4 -right-4 text-8xl font-black text-white/5 opacity-50 group-hover:text-[#16a34a]/10 transition-colors pointer-events-none uppercase tracking-tighter">
+                  {item.step}
+                </div>
+                <item.icon className="text-[#16a34a] mb-8" size={40} />
+                <h3 className="text-2xl font-bold font-jakarta text-white mb-4 leading-none tracking-tight">{item.title}</h3>
+                <p className="text-gray-500 leading-relaxed font-medium">{item.desc}</p>
+                {item.link && (
+                  <div className="mt-8 pt-6 border-t border-white/5 flex items-center gap-2 text-[#16a34a] text-xs font-black uppercase tracking-widest group-hover:gap-3 transition-all">
+                    Try AI Engine <ArrowRight size={14} />
+                  </div>
+                )}
+              </motion.div>
+            );
+
+            if (item.link) {
+              return (
+                <Link key={i} href={item.link}>
+                  {CardContent}
+                </Link>
+              );
+            }
+            return <div key={i}>{CardContent}</div>;
+          })}
         </div>
       </section>
 

@@ -102,7 +102,7 @@ export default function NgoDetailPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/ngos/${id}`);
+      const res = await fetch(`${API}/api/v1/ngos/${id}`);
       if (!res.ok) throw new Error("Database integrity breach");
       const data = await res.json();
       setNgo(data.ngo || data);
@@ -119,7 +119,7 @@ export default function NgoDetailPage() {
 
   const handleConfirm = async (updateId) => {
      try {
-       const res = await fetch(`${API}/updates/${updateId}/community-confirm`, { method: "POST" });
+       const res = await fetch(`${API}/api/v1/updates/${updateId}/community-confirm`, { method: "POST" });
        if (res.ok) await fetchData();
      } catch (err) {
        console.error("Critical Confirm Error:", err);

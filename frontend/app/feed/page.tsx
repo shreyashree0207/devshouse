@@ -141,7 +141,7 @@ export default function PublicFeedPage() {
   const fetchNgos = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/gov/ngos`);
+      const res = await fetch(`${API}/api/v1/gov/ngos`);
       if (!res.ok) throw new Error("Metadata sync failed");
       const data = await res.json();
       setNgos(data);
@@ -158,7 +158,7 @@ export default function PublicFeedPage() {
     // Note: Community confirm ideally targets a specific update. 
     // Here we simulate success for the demo.
     try {
-       await fetch(`${API}/updates/${ngoId}/community-confirm`, { method: "POST" });
+       await fetch(`${API}/api/v1/updates/${ngoId}/community-confirm`, { method: "POST" });
        fetchNgos();
     } catch(e) {}
   };

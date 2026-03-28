@@ -103,8 +103,8 @@ export default function NGOAdminDashboard() {
   const fetchNgoData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/ngos/${id}`);
-      if (!res.ok) throw new Error("Database integrity error");
+      const res = await fetch(`${API}/api/v1/ngos/${id}`);
+      if (!res.ok) throw new Error("Database connectivity issue or NGO not found");
       const data = await res.json();
       setNgo(data.ngo || data);
       const upd = data.proof_updates || data.updates || [];
@@ -120,7 +120,7 @@ export default function NGOAdminDashboard() {
 
   const handleVerified = async (payload) => {
     try {
-      const res = await fetch(`${API}/updates`, {
+      const res = await fetch(`${API}/api/v1/updates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, ngo_id: id })

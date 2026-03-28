@@ -16,11 +16,11 @@ export default function GovPortal() {
     else setError("Invalid token")
   }
 
-  const load = () => fetch(`${API}/gov/ngos`).then(r=>r.json()).then(setNgos).catch(()=>{})
+  const load = () => fetch(`${API}/api/v1/gov/ngos`).then(r=>r.json()).then(setNgos).catch(()=>{})
   useEffect(() => { if (loggedIn) load() }, [loggedIn])
 
   const action = async (ngo_id, act, points=0) => {
-    await fetch(`${API}/gov/action`, {method:"POST",headers:{"Content-Type":"application/json"},
+    await fetch(`${API}/api/v1/gov/action`, {method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({token:"GOV-DEMO-2025",ngo_id,action:act,points,reason:"Gov review"})})
     load()
   }

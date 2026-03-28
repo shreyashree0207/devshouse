@@ -30,7 +30,7 @@ export default function NgoLoginPage() {
     if (!ngoId) {
       // Demo fallback: Try to fetch from backend or just use the ID as slug
       try {
-        const res = await fetch(`${API}/gov/ngos`);
+        const res = await fetch(`${API}/api/v1/gov/ngos`);
         if (res.ok) {
           const ngos = await res.json();
           const found = ngos.find((n: any) => n.darpan_id === trimmed);

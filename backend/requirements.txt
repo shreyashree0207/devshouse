@@ -9,3 +9,4 @@ imagehash
 google-genai
 python-multipart
 anthropic
+Pillow

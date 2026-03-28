@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Search, Loader2, MapPin, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState, Suspense } from 'react';
 import { supabase } from '../../lib/supabase';
+import { apiRequest } from '../../lib/api';
 import NGOCard from '../../components/NGOCard';
 
 const CATEGORIES = ["All", "Education", "Healthcare", "Environment", "Women", "Food", "Child"];
@@ -16,15 +17,24 @@ function NGODiscoveryContent() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [sortBy, setSortBy] = useState("Newest");
   const [showNewNGOs, setShowNewNGOs] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data } = await supabase
-        .from('ngos')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (data) { setNgos(data); setFilteredNgos(data); }
-      setLoading(false);
+      try {
+        setLoading(true);
+        // Using Backend API instead of direct Supabase to fix 'Identifier Gap'
+        const data = await apiRequest('/ngos');
+        if (data) { 
+          setNgos(data); 
+          setFilteredNgos(data); 
+        }
+      } catch (err: any) {
+        console.error("NGO Fetch Error:", err);
+        setError("Unable to sync with master database. Please re-authenticate.");
+      } finally {
+        setLoading(false);
+      }
     };
     fetchData();
   }, []);

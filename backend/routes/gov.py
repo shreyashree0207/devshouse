@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from db_client import supabase
+from database import supabase
+from auth import verify_token
 from typing import List, Optional
+from datetime import datetime
 
 router = APIRouter(prefix="/gov", tags=["Government"])
 
@@ -17,11 +19,19 @@ async def get_all_ngos():
     return res.data
 
 @router.post("/ngos/{ngo_id}/verify")
-async def verify_ngo(ngo_id: str):
+async def verify_ngo(ngo_id: str, user = Depends(verify_token)):
+    """
+    Verifies an NGO. Requires government authentication to prevent 'Database integrity breach'.
+    """
+    if user.get("role") != "govt":
+        raise HTTPException(status_code=403, detail="Access Denied: Government official required")
+
     res = supabase.table("ngos").update({
         "verified": True,
         "blacklisted": False,
-        "gov_points": supabase.table("ngos").select("gov_points").eq("id", ngo_id).execute().data[0].get("gov_points", 0) + 10
+        "gov_points": supabase.table("ngos").select("gov_points").eq("id", ngo_id).execute().data[0].get("gov_points", 0) + 10,
+        "verified_by": user.get("user_id"),
+        "verified_at": datetime.utcnow().isoformat()
     }).eq("id", ngo_id).execute()
     
     if not res.data:
@@ -39,11 +49,20 @@ async def verify_ngo(ngo_id: str):
     return res.data[0]
 
 @router.post("/ngos/{ngo_id}/blacklist")
-async def blacklist_ngo(ngo_id: str):
+async def blacklist_ngo(ngo_id: str, user = Depends(verify_token)):
+    """
+    Blacklists an NGO for audit failure or suspicious activity.
+    Restricted to government officials.
+    """
+    if user.get("role") != "govt":
+        raise HTTPException(status_code=403, detail="Access Denied: Government official required")
+
     res = supabase.table("ngos").update({
         "blacklisted": True,
         "verified": False,
-        "gov_points": max(0, supabase.table("ngos").select("gov_points").eq("id", ngo_id).execute().data[0].get("gov_points", 0) - 20)
+        "gov_points": max(0, supabase.table("ngos").select("gov_points").eq("id", ngo_id).execute().data[0].get("gov_points", 0) - 20),
+        "blacklisted_by": user.get("user_id"),
+        "blacklisted_at": datetime.utcnow().isoformat()
     }).eq("id", ngo_id).execute()
     
     if not res.data:

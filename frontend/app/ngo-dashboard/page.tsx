@@ -83,7 +83,7 @@ function ProofModal({ milestone, ngo, onClose, onVerified }: any) {
       let verdict: any;
 
       if (apiUrl) {
-        const res = await fetch(`${apiUrl}/ai/verify`, {
+        const res = await fetch(`${apiUrl}/api/v1/ai/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

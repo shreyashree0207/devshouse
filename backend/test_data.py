@@ -1,6 +1,6 @@
 import json
 from main import get_ngos, get_ngo
-from db_client import supabase
+from database import supabase
 
 print("\n--- BEFORE ADDING ---")
 ngos = get_ngos()

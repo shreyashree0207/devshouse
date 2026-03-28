@@ -22,7 +22,7 @@ function DonateForm() {
   useEffect(() => {
     if (!amount || amount < 50) return
     const t = setTimeout(() => {
-      fetch(`${API}/ai/impact`,{method:"POST",headers:{"Content-Type":"application/json"},
+      fetch(`${API}/api/v1/ai/impact`,{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({amount:parseInt(amount),category:cat,ngo_name:ngoName})})
       .then(r=>r.json()).then(d=>setImpact(d.message)).catch(()=>{})
     }, 500)
@@ -32,7 +32,7 @@ function DonateForm() {
   const donate = async () => {
     if (!amount || amount < 1) return alert("Enter a valid amount")
     setLoading(true)
-    const res = await fetch(`${API}/donations`,{method:"POST",headers:{"Content-Type":"application/json"},
+    const res = await fetch(`${API}/api/v1/donations`,{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ngo_id:ngoId,ngo_name:ngoName,category:cat,donor_name:name||"Anonymous",amount:parseInt(amount),is_anonymous:anon})})
     const data = await res.json()
     setResult(data)

@@ -21,7 +21,7 @@ function GovNGOCard({ ngo, onAction }) {
   const handleStatusChange = async (action) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/gov/ngos/${ngo.id}/${action}`, { method: "POST" });
+      const res = await fetch(`${API}/api/v1/gov/ngos/${ngo.id}/${action}`, { method: "POST" });
       if (res.ok) onAction();
     } catch (e) {
       console.error(e);
@@ -34,7 +34,7 @@ function GovNGOCard({ ngo, onAction }) {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch(`${API}/gov/ngos/${ngo.id}/request-documents`, {
+      const res = await fetch(`${API}/api/v1/gov/ngos/${ngo.id}/request-documents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: docReason, document_types: ["Audit Report", "Visual Proof"] })
@@ -203,7 +203,7 @@ export default function GovDashboard() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/gov/ngos`);
+      const res = await fetch(`${API}/api/v1/gov/ngos`);
       if (!res.ok) throw new Error("Government Core unreachable");
       const data = await res.json();
       setNgos(Array.isArray(data) ? data : data.ngos || []);

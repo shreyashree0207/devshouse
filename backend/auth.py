@@ -17,11 +17,17 @@ def verify_token(authorization: str = Header(None)):
     try:
         # Note: In production, verify the signature with your Supabase JWT secret
         payload = jwt.decode(token, options={"verify_signature": False}, algorithms=["HS256"])
+        
+        # Check user_metadata for custom roles added via Supabase
+        user_metadata = payload.get("user_metadata", {})
+        custom_role = user_metadata.get("role")
+        
         user_info = {
             "user_id": payload.get("sub"),
             "email": payload.get("email"),
-            "role": payload.get("role", "authenticated"),
+            "role": custom_role or payload.get("role", "authenticated"),
         }
+        
         if not user_info["user_id"]:
             raise HTTPException(status_code=401, detail="Invalid token: no user ID found")
         return user_info
