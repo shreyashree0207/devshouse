@@ -22,6 +22,7 @@ export async function GET(request: Request) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
+      // Route to sync page which reads localStorage role and redirects
       return NextResponse.redirect(url.origin + '/auth/sync')
     }
     console.error('Auth callback error:', error)
